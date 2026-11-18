@@ -7,6 +7,8 @@ Monitor control for Linux, with profiles, a tray icon and a settings window.
 - **Every other monitor** gets brightness and contrast over DDC/CI through `ddcutil`.
 - **Profiles** capture all connected monitors at once ("Gaming", "Night", …) and apply them from the
   CLI, the tray or the window.
+- **Automatic profiles** switch while an app runs (e.g. any Steam game → Gaming) and back to a default
+  profile when it exits.
 
 Verified on an MSI MAG323UPF (FW V61) alongside a ViewSonic VX3418-2KPC and a Samsung U28E590.
 
@@ -39,8 +41,19 @@ monctl status [MONITOR] [--all] [--json]
 monctl set MAG323UPF game_mode=fps night_vision=ai
 monctl brightness 40 [MONITOR|all]
 monctl profile save Gaming | apply Gaming | list | show Gaming | delete Gaming
+monctl auto add steam:game Gaming             # automatic profiles
+monctl auto add blender Work
+monctl auto default Desktop                   # applied when the last matching app exits
+monctl auto on | off | list | remove blender | procs
+monctl watch                                  # run automatic profiles without the tray
 monctl tray [--window]
 ```
+
+Automatic-profile rules match a process name (case-insensitive, `.exe` optional so Proton games
+match by their Windows executable) or `steam:game` for any game started by Steam (detected through
+the `SteamAppId`/`SteamGameId` environment Steam gives its games). The first matching rule wins.
+`monctl auto procs` lists what is running. Nothing is applied at startup unless a rule matches, so
+a manually chosen profile is left alone.
 
 `MONITOR` is an index from `monctl list`, a key (`MAG323UPF`), a connector (`DP-3`) or `all`.
 

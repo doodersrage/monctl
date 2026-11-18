@@ -1,0 +1,9 @@
+[Desktop Entry]
+Type=Application
+Name=monctl
+GenericName=Monitor Control
+Comment=Monitor brightness, profiles and MSI OSD settings
+Exec=monctl tray --window
+Icon=video-display
+Categories=Settings;HardwareSettings;
+Keywords=monitor;brightness;ddc;msi;

@@ -6,7 +6,7 @@ import argparse
 import json
 import sys
 
-from . import __version__, msi, profiles, runner, settings
+from . import __version__, autoprofile, msi, profiles, runner, settings
 from .monitors import Monitor, discover, find
 
 
@@ -99,6 +99,72 @@ def cmd_profile(a, mons):
     return 0
 
 
+def cmd_auto(a, _mons):
+    cfg = settings.load()
+    rules = cfg["auto_rules"]
+    if a.action in ("on", "off"):
+        settings.set(auto_enabled=a.action == "on")
+    elif a.action == "default":
+        if a.args and a.args[0] not in profiles.load():
+            return _err(f"no profile {a.args[0]!r}")
+        settings.set(auto_default=a.args[0] if a.args else "")
+    elif a.action == "add":
+        if len(a.args) != 2:
+            return _err("usage: monctl auto add MATCH PROFILE  (MATCH: process name or steam:game)")
+        match, prof = a.args
+        if prof not in profiles.load():
+            return _err(f"no profile {prof!r}")
+        rules = [r for r in rules if r.get("match") != match] + [{"match": match, "profile": prof}]
+        settings.set(auto_rules=rules)
+    elif a.action == "remove":
+        if not a.args:
+            return _err("usage: monctl auto remove MATCH")
+        left = [r for r in rules if r.get("match") != a.args[0]]
+        if len(left) == len(rules):
+            return _err(f"no rule for {a.args[0]!r}")
+        settings.set(auto_rules=left)
+    elif a.action == "procs":
+        procs = autoprofile.Scanner().scan()
+        games = sorted({n for p in procs if p.steam_game for n in p.names})
+        print("Steam games running: " + (", ".join(games) if games else "none"))
+        print("\n".join(autoprofile.running_names(procs)))
+        return 0
+    cfg = settings.load()
+    print(f"automatic profiles: {'on' if cfg['auto_enabled'] else 'off'}"
+          f"   default: {cfg['auto_default'] or '(none)'}")
+    for i, r in enumerate(cfg["auto_rules"], 1):
+        print(f"  {i}. {r['match']:24} -> {r['profile']}")
+    if not cfg["auto_rules"]:
+        print("  (no rules; add one with: monctl auto add steam:game Gaming)")
+    return 0
+
+
+def cmd_watch(a, _mons):
+    import time
+
+    def apply(name):
+        mons = discover()
+        warns = profiles.apply(name, mons)
+        print(f"{time.strftime('%H:%M:%S')} applied {name!r}", flush=True)
+        for w in warns:
+            print(f"  warning: {w}", file=sys.stderr, flush=True)
+
+    if not settings.get("auto_enabled"):
+        print("automatic profiles are off; enabling them for this session only", file=sys.stderr)
+    w = autoprofile.Watcher(apply)
+    try:
+        while True:
+            cfg = settings.load()
+            cfg["auto_enabled"] = True
+            try:
+                w.tick(cfg)
+            except runner.ToolError as e:
+                print(f"monctl: {e}", file=sys.stderr, flush=True)
+            time.sleep(a.interval)
+    except KeyboardInterrupt:
+        return 0
+
+
 def cmd_config(a, _mons):
     if a.key is None:
         print(json.dumps(settings.load(), indent=2))
@@ -142,8 +208,18 @@ def build_parser() -> argparse.ArgumentParser:
     s.add_argument("name", nargs="?")
     s.set_defaults(fn=cmd_profile)
 
+    s = sub.add_parser("auto", help="automatic profiles: list|on|off|default|add|remove|procs")
+    s.add_argument("action", nargs="?", default="list",
+                   choices=["list", "on", "off", "default", "add", "remove", "procs"])
+    s.add_argument("args", nargs="*")
+    s.set_defaults(fn=cmd_auto, no_discover=True)
+
+    s = sub.add_parser("watch", help="apply automatic profiles without the tray (Ctrl+C to stop)")
+    s.add_argument("--interval", type=float, default=3.0)
+    s.set_defaults(fn=cmd_watch, no_discover=True)
+
     s = sub.add_parser("config", help="show or change monctl settings")
-    s.add_argument("key", nargs="?", choices=list(settings.DEFAULTS))
+    s.add_argument("key", nargs="?", choices=["msigd"])
     s.add_argument("value", nargs="?")
     s.set_defaults(fn=cmd_config, no_discover=True)
 

@@ -8,6 +8,9 @@ from pathlib import Path
 
 DEFAULTS = {
     "msigd": "",        # path to the msigd binary; "" = $MONCTL_MSIGD or msigd on PATH
+    "auto_enabled": False,  # automatic profiles (see autoprofile.py)
+    "auto_default": "",     # profile applied when the last matching app exits
+    "auto_rules": [],       # [{"match": "steam:game" | process name, "profile": name}]
 }
 
 
@@ -21,7 +24,7 @@ def path() -> Path:
 
 
 def load() -> dict:
-    s = dict(DEFAULTS)
+    s = {k: (list(v) if isinstance(v, list) else v) for k, v in DEFAULTS.items()}
     try:
         data = json.loads(path().read_text())
         if isinstance(data, dict):

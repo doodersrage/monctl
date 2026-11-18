@@ -14,11 +14,12 @@ from pathlib import Path
 
 from PyQt6.QtCore import QObject, QRunnable, Qt, QThreadPool, QTimer, pyqtSignal
 from PyQt6.QtGui import QAction, QActionGroup, QIcon
-from PyQt6.QtWidgets import (QApplication, QComboBox, QFormLayout, QGroupBox, QHBoxLayout,
-                             QInputDialog, QLabel, QMenu, QMessageBox, QPushButton, QSlider,
-                             QSystemTrayIcon, QVBoxLayout, QWidget)
+from PyQt6.QtWidgets import (QApplication, QCheckBox, QComboBox, QDialog, QDialogButtonBox,
+                             QFormLayout, QGroupBox, QHBoxLayout, QInputDialog, QLabel,
+                             QListWidget, QListWidgetItem, QMenu, QMessageBox, QPushButton,
+                             QSlider, QSystemTrayIcon, QVBoxLayout, QWidget)
 
-from . import __version__, msi, profiles, runner
+from . import __version__, autoprofile, msi, profiles, runner, settings
 from .monitors import Monitor, discover
 
 MSI_CHOICES = ("game_mode", "night_vision", "smart_crosshair_icon", "smart_crosshair_color",
@@ -90,6 +91,8 @@ class Controller(QObject):
     state_changed = pyqtSignal(str, dict)     # monitor key, state
     error = pyqtSignal(str)
     busy = pyqtSignal(bool)
+    auto_switched = pyqtSignal(str)           # profile applied by an automatic rule
+    profiles_changed = pyqtSignal()
 
     def __init__(self):
         super().__init__()
@@ -99,6 +102,24 @@ class Controller(QObject):
         self.states: dict[str, dict] = {}
         self._jobs: set[_Job] = set()
         self._pending = 0
+        self.watcher = autoprofile.Watcher(self._auto_apply)
+        self.auto_timer = QTimer(self, interval=3000)
+        self.auto_timer.timeout.connect(self._auto_tick)
+        self.auto_timer.start()
+
+    def _auto_tick(self):
+        if not self.monitors:      # wait for the first discovery
+            return
+        try:
+            self.watcher.tick()
+        except Exception as e:  # noqa: BLE001 - keep the timer alive
+            self.error.emit(f"Automatic profiles: {e}")
+
+    def _auto_apply(self, name: str):
+        if name not in profiles.load():
+            self.error.emit(f"Automatic profiles: no profile named {name!r}")
+            return
+        self.apply_profile(name, on_done=self.auto_switched.emit)
 
     def _submit(self, fn, done=None):
         self._pending += 1
@@ -168,7 +189,11 @@ class Controller(QObject):
 
     def save_profile(self, name: str, on_done=None):
         mons = list(self.monitors)
-        self._submit(lambda: profiles.save(name, mons), lambda _r: on_done and on_done(name))
+        def done(_r):
+            self.profiles_changed.emit()
+            if on_done:
+                on_done(name)
+        self._submit(lambda: profiles.save(name, mons), done)
 
 
 # ----------------------------------------------------------------- window
@@ -238,6 +263,103 @@ class MonitorBox(QGroupBox):
             self.updating = False
 
 
+class RuleDialog(QDialog):
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("Add automatic profile")
+        form = QFormLayout(self)
+        self.app = QComboBox(editable=True)
+        self.app.addItem("Any Steam game", autoprofile.STEAM_GAME)
+        for n in autoprofile.running_names(autoprofile.Scanner().scan()):
+            self.app.addItem(n, n)
+        self.app.setToolTip("A running app, or type a process name (.exe optional for Proton games)")
+        self.prof = QComboBox()
+        self.prof.addItems(list(profiles.load()))
+        form.addRow("When this runs:", self.app)
+        form.addRow("Use profile:", self.prof)
+        bb = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel)
+        bb.accepted.connect(self.accept)
+        bb.rejected.connect(self.reject)
+        form.addRow(bb)
+
+    def rule(self) -> dict | None:
+        i = self.app.currentIndex()
+        text = self.app.currentText().strip()
+        match = self.app.itemData(i) if i >= 0 and self.app.itemText(i) == text else text
+        if not match or not self.prof.currentText():
+            return None
+        return {"match": match, "profile": self.prof.currentText()}
+
+
+def rule_text(r: dict) -> str:
+    what = "Any Steam game" if r["match"] == autoprofile.STEAM_GAME else r["match"]
+    return f"{what}  →  {r['profile']}"
+
+
+class AutoBox(QGroupBox):
+    def __init__(self, ctl: Controller):
+        super().__init__("Automatic profiles")
+        self.ctl = ctl
+        lay = QVBoxLayout(self)
+        top = QHBoxLayout()
+        self.enabled = QCheckBox("Switch profiles while these apps run")
+        self.enabled.toggled.connect(lambda on: settings.set(auto_enabled=on))
+        top.addWidget(self.enabled)
+        top.addStretch()
+        top.addWidget(QLabel("Afterwards:"))
+        self.default = QComboBox()
+        self.default.setToolTip("Profile applied when the last matching app exits")
+        self.default.activated.connect(lambda _i: settings.set(auto_default=self.default.currentData()))
+        top.addWidget(self.default)
+        lay.addLayout(top)
+        self.list = QListWidget()
+        self.list.setMaximumHeight(90)
+        lay.addWidget(self.list)
+        row = QHBoxLayout()
+        b_add, b_del = QPushButton("Add…"), QPushButton("Remove")
+        b_add.clicked.connect(self._add)
+        b_del.clicked.connect(self._remove)
+        row.addWidget(b_add)
+        row.addWidget(b_del)
+        row.addStretch()
+        lay.addLayout(row)
+        ctl.profiles_changed.connect(self.reload)
+        self.reload()
+
+    def reload(self):
+        cfg = settings.load()
+        self.enabled.blockSignals(True)
+        self.enabled.setChecked(bool(cfg["auto_enabled"]))
+        self.enabled.blockSignals(False)
+        self.default.clear()
+        self.default.addItem("(keep current)", "")
+        for n in profiles.load():
+            self.default.addItem(n, n)
+        self.default.setCurrentIndex(max(0, self.default.findData(cfg["auto_default"])))
+        self.list.clear()
+        for r in cfg["auto_rules"]:
+            it = QListWidgetItem(rule_text(r))
+            it.setData(Qt.ItemDataRole.UserRole, r["match"])
+            self.list.addItem(it)
+
+    def _add(self):
+        if not profiles.load():
+            QMessageBox.information(self, "Automatic profiles", "Save a profile first.")
+            return
+        d = RuleDialog(self)
+        if d.exec() and (r := d.rule()):
+            rules = [x for x in settings.get("auto_rules") if x.get("match") != r["match"]]
+            settings.set(auto_rules=rules + [r])
+            self.reload()
+
+    def _remove(self):
+        it = self.list.currentItem()
+        if it:
+            match = it.data(Qt.ItemDataRole.UserRole)
+            settings.set(auto_rules=[x for x in settings.get("auto_rules") if x.get("match") != match])
+            self.reload()
+
+
 class Window(QWidget):
     def __init__(self, ctl: Controller):
         super().__init__()
@@ -267,6 +389,8 @@ class Window(QWidget):
 
         self.boxes_lay = QVBoxLayout()
         self.lay.addLayout(self.boxes_lay)
+        self.auto = AutoBox(ctl)
+        self.lay.addWidget(self.auto)
         self.status = QLabel("Detecting monitors…")
         self.lay.addWidget(self.status)
         self.boxes: dict[str, MonitorBox] = {}
@@ -274,6 +398,7 @@ class Window(QWidget):
         ctl.monitors_changed.connect(self._rebuild)
         ctl.state_changed.connect(lambda k, st: k in self.boxes and self.boxes[k].show_state(st))
         ctl.busy.connect(lambda b: self.status.setText("Working…" if b else "Ready"))
+        ctl.profiles_changed.connect(lambda: self._load_profiles(self.prof.currentText()))
         self._load_profiles()
         if ctl.monitors:
             self._rebuild(ctl.monitors)
@@ -313,7 +438,7 @@ class Window(QWidget):
         if name and QMessageBox.question(self, "Delete profile", f"Delete {name!r}?") \
                 == QMessageBox.StandardButton.Yes:
             profiles.delete(name)
-            self._load_profiles()
+            self.ctl.profiles_changed.emit()
 
 
 # ------------------------------------------------------------------- tray
@@ -331,6 +456,8 @@ class Tray(QSystemTrayIcon):
                                and self.open_window())
         ctl.error.connect(lambda msg: self.showMessage(
             "monctl", msg, QSystemTrayIcon.MessageIcon.Warning, 6000))
+        ctl.auto_switched.connect(lambda n: self.showMessage(
+            "monctl", f"Switched to {n}", QSystemTrayIcon.MessageIcon.Information, 2500))
         self._build()
 
     def open_window(self):
@@ -353,6 +480,10 @@ class Tray(QSystemTrayIcon):
         if not profs:
             m.addAction("(none yet)").setEnabled(False)
         m.addAction("Save current as…", self._save_profile)
+        auto = m.addAction("Automatic profiles")
+        auto.setCheckable(True)
+        auto.setChecked(bool(settings.get("auto_enabled")))
+        auto.toggled.connect(lambda on: (settings.set(auto_enabled=on), self.ctl.profiles_changed.emit()))
 
         m.addSeparator()
         if not self.ctl.monitors:
