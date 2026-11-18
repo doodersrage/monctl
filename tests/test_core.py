@@ -140,3 +140,17 @@ def test_profile_roundtrip(fake):
     assert any("setvcp" in c for c in fake.calls)
     assert any("--game_mode" in c for c in fake.calls)
     assert profiles.delete("Night") and not profiles.delete("Night")
+
+
+def test_autostart_toggle(monkeypatch, tmp_path):
+    pytest.importorskip("PyQt6.QtWidgets")
+    from monctl import qt
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))
+    qt.set_autostart(True)
+    text = qt.autostart_path().read_text()
+    assert qt.autostart_path().name == "monctl-tray.desktop"
+    assert "Exec=" in text and text.rstrip().splitlines()[0] == "[Desktop Entry]"
+    assert " tray" in text
+    qt.set_autostart(False)
+    assert not qt.autostart_path().exists()
+    qt.set_autostart(False)  # idempotent

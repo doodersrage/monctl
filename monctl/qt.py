@@ -6,8 +6,11 @@ ddcutil never talk to the hardware concurrently and the UI never blocks.
 
 from __future__ import annotations
 
+import os
+import shutil
 import sys
 import traceback
+from pathlib import Path
 
 from PyQt6.QtCore import QObject, QRunnable, Qt, QThreadPool, QTimer, pyqtSignal
 from PyQt6.QtGui import QAction, QActionGroup, QIcon
@@ -25,6 +28,30 @@ LABELS = {
     "smart_crosshair_color": "Crosshair color", "response_time": "Response time",
     "eye_saver": "Eye Saver", "brightness": "Brightness", "contrast": "Contrast",
 }
+
+
+AUTOSTART_NAME = "monctl-tray.desktop"
+
+
+def autostart_path() -> Path:
+    base = os.environ.get("XDG_CONFIG_HOME") or os.path.expanduser("~/.config")
+    return Path(base) / "autostart" / AUTOSTART_NAME
+
+
+def autostart_entry() -> str:
+    exe = shutil.which("monctl") or f"{sys.executable} -m monctl"
+    return ("[Desktop Entry]\nType=Application\nName=monctl\n"
+            "Comment=Monitor profiles and brightness in the system tray\n"
+            f"Exec={exe} tray\nIcon=video-display\nX-GNOME-Autostart-enabled=true\n")
+
+
+def set_autostart(on: bool) -> None:
+    p = autostart_path()
+    if on:
+        p.parent.mkdir(parents=True, exist_ok=True)
+        p.write_text(autostart_entry())
+    else:
+        p.unlink(missing_ok=True)
 
 
 def nice(s: str) -> str:
@@ -341,6 +368,10 @@ class Tray(QSystemTrayIcon):
         m.addSeparator()
         m.addAction("Open window…", self.open_window)
         m.addAction("Re-detect monitors", self.ctl.refresh)
+        a = m.addAction("Start at login")
+        a.setCheckable(True)
+        a.setChecked(autostart_path().is_file())
+        a.toggled.connect(set_autostart)
         m.addAction("Quit", QApplication.quit)
 
     def _msi_menu(self, menu: QMenu, mon: Monitor):
