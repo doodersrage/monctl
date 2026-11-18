@@ -1,0 +1,28 @@
+[build-system]
+requires = ["setuptools>=77"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "monctl"
+dynamic = ["version"]
+description = "Monitor control for Linux: MSI OSD settings over USB (msigd) and DDC/CI (ddcutil), with profiles and a tray"
+readme = "README.md"
+requires-python = ">=3.9"
+license = "MIT"
+license-files = ["LICENSE"]
+dependencies = []
+
+[project.optional-dependencies]
+tray = ["PyQt6"]
+
+[project.scripts]
+monctl = "monctl.cli:main"
+
+[tool.setuptools]
+packages = ["monctl"]
+
+[tool.setuptools.dynamic]
+version = {attr = "monctl.__version__"}
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

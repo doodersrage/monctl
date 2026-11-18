@@ -1,0 +1,52 @@
+# monctl
+
+Monitor control for Linux, with profiles, a tray icon and a settings window.
+
+- **MSI monitors** are controlled over USB through [msigd](https://github.com/doodersrage/msigd)
+  (game mode, Night Vision, smart crosshair, response time, Eye Saver, brightness, contrast, input, KVM…).
+- **Every other monitor** gets brightness and contrast over DDC/CI through `ddcutil`.
+- **Profiles** capture all connected monitors at once ("Gaming", "Night", …) and apply them from the
+  CLI, the tray or the window.
+
+Verified on an MSI MAG323UPF (FW V61) alongside a ViewSonic VX3418-2KPC and a Samsung U28E590.
+
+## Safety
+
+msigd talks to the monitor firmware directly, and the firmware does not reject unsupported writes.
+monctl therefore only writes settings that were verified on hardware (written, read back, restored
+and diffed against the full monitor state) and refuses these outright:
+
+| Setting | Why |
+|---|---|
+| `kvm=type_c` | the monitor's USB control channel is on the monitor's own hub; switching KVM to USB-C disconnects it, and only the OSD can switch back |
+| `pip` | turning PiP on resets brightness, response time, Adaptive-Sync and Zero Latency, and not all of them can be restored over USB |
+| `free_sync`, `zero_latency` | writing these codes hung other MSI models |
+
+## Requirements
+
+- Python ≥ 3.9, PyQt6 for the tray/window
+- `ddcutil` with the `i2c-dev` module loaded (DDC/CI monitors)
+- `msigd` from the fork above for MSI monitors (`make TARGETOS=arch`), and access to the monitor's
+  `/dev/hidraw*` node (desktop sessions usually grant this; otherwise see msigd's udev rule)
+
+If `msigd` is not on `PATH`: `monctl config msigd /path/to/msigd` (or set `MONCTL_MSIGD`).
+
+## Usage
+
+```
+monctl list                                   # monitors and how each is controlled
+monctl status [MONITOR] [--all] [--json]
+monctl set MAG323UPF game_mode=fps night_vision=ai
+monctl brightness 40 [MONITOR|all]
+monctl profile save Gaming | apply Gaming | list | show Gaming | delete Gaming
+monctl tray [--window]
+```
+
+`MONITOR` is an index from `monctl list`, a key (`MAG323UPF`), a connector (`DP-3`) or `all`.
+
+Applying a profile sends `game_mode` first, since the monitor's game-mode presets overwrite
+brightness, sharpness and other picture settings.
+
+## License
+
+MIT. msigd is GPLv2 and runs as a separate program.
