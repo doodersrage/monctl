@@ -2,7 +2,7 @@
 
 Monitor control for Linux, with profiles, a tray icon and a settings window.
 
-- **MSI monitors** are controlled over USB through [msigd](https://github.com/doodersrage/msigd)
+- **MSI monitors** are controlled over USB through [msigd](https://github.com/doodersrage/msigd/tree/mag323upf)
   (game mode, Night Vision, smart crosshair, response time, Eye Saver, brightness, contrast, input, KVM…).
 - **Every other monitor** gets brightness and contrast over DDC/CI through `ddcutil`.
 - **Profiles** capture all connected monitors at once ("Gaming", "Night", …) and apply them from the
