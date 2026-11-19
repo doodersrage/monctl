@@ -22,7 +22,7 @@ from . import settings
 STEAM_GAME = "steam:game"
 # Steam client processes; they are not games even if they carry a Steam app id.
 STEAM_CLIENT = {"steam", "steamwebhelper", "steam.sh", "steam-runtime-l", "steam-runtime-launcher-service",
-                "srt-logger", "pressure-vessel-", "pv-bwrap"}
+                "srt-logger", "srt-bwrap", "pressure-vessel-", "pv-bwrap", "pv-adverb", "gameoverlayui"}
 
 
 def _norm(name: str) -> str:
@@ -55,7 +55,8 @@ def read_proc(pid: int, root: Path = Path("/proc")) -> Proc | None:
     if not comm:
         return None
     names = {_norm(comm)}
-    argv0 = _read(base / "cmdline", 4096).split(b"\0", 1)[0].decode(errors="replace")
+    argv = _read(base / "cmdline", 4096).split(b"\0")
+    argv0 = argv[0].decode(errors="replace")
     argv0 = argv0.split(" -", 1)[0]   # some apps (Electron) rewrite argv into one string
     if argv0:
         names.add(_norm(argv0))
@@ -65,6 +66,11 @@ def read_proc(pid: int, root: Path = Path("/proc")) -> Proc | None:
         if k in (b"SteamGameId", b"SteamAppId") and v:
             steam = v.decode(errors="replace")
             break
+    if not steam and _norm(comm) == "reaper" and b"SteamLaunch" in argv:
+        # Steam starts every game as: reaper SteamLaunch AppId=NNN -- <game>
+        for a in argv:
+            if a.startswith(b"AppId="):
+                steam = a[6:].decode(errors="replace")
     names.discard("")
     return Proc(pid, names, steam)
 

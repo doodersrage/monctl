@@ -103,3 +103,11 @@ def test_cli_auto_rules(tmp_path, monkeypatch, capsys):
     assert "automatic profiles: on   default: Desktop" in out and "steam:game" in out
     assert cli.main(["auto", "remove", "steam:game"]) == 0
     assert cli.main(["auto", "remove", "steam:game"]) == 1
+
+
+def test_reaper_launch_counts_as_steam_game(proc):
+    mkproc(proc, 60, "srt-bwrap", ["srt-bwrap"], {"SteamAppId": "7"})   # client's own container
+    assert ap.pick([{"match": ap.STEAM_GAME, "profile": "G"}], ap.Scanner(proc).scan()) is None
+    mkproc(proc, 61, "reaper", ["/s/ubuntu12_32/reaper", "SteamLaunch", "AppId=570", "--", "/g/dota2"])
+    ps = names(proc)
+    assert ps[61].steam_game and ps[61].steam_app == "570"
