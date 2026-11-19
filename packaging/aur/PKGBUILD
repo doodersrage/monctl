@@ -1,7 +1,7 @@
 # Maintainer: Robert McDowell <1476679+doodersrage@users.noreply.github.com>
 pkgname=monctl-msi
 _name=monctl
-pkgver=0.5.0
+pkgver=0.6.0
 pkgrel=1
 pkgdesc="Monitor control: per-game profiles, tray, DDC/CI brightness and MSI OSD settings over USB"
 arch=('any')
@@ -17,7 +17,7 @@ optdepends=('python-pyqt6: tray icon and window'
             'python-gobject: keyboard shortcuts, focus rules'
             'msigd: MSI monitor settings over USB (needs a build that knows your model)')
 source=("$_name-$pkgver.tar.gz::$url/archive/refs/tags/v$pkgver.tar.gz")
-sha256sums=('511ae2415d136bae31cd2bd85a8ddfffc34e8302c92a97c22abd82b82cba8619')
+sha256sums=('f98419f5e8b3cfc85ccfaea2c5abf8d6bfd24da2f74f8325cbb47cef1e899c7d')
 
 build() {
   cd "$_name-$pkgver"
