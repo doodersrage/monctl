@@ -50,7 +50,7 @@ jobs:
         with: {name: arch, path: dist/*.pkg.tar.zst}
 
   release:
-    if: startsWith(github.ref, 'refs/tags/v')
+    # a manual run does everything except checking the tag and publishing
     needs: [deb, rpm, srpm, arch]
     runs-on: ubuntu-latest
     steps:
@@ -58,12 +58,15 @@ jobs:
       - uses: actions/download-artifact@v8
         with: {path: dist, merge-multiple: true}
       - name: Check the tag matches the version
+        if: startsWith(github.ref, 'refs/tags/v')
         run: |
           v=$(sed -n 's/^__version__ = "\(.*\)"/\1/p' monctl/__init__.py)
           test "v$v" = "$GITHUB_REF_NAME"
       - name: Release notes from CHANGELOG.md
         run: |
-          awk -v v="${GITHUB_REF_NAME#v}" '$0 == "## " v {on=1; next} /^## / {on=0} on' CHANGELOG.md > notes.md
+          v=$(sed -n 's/^__version__ = "\(.*\)"/\1/p' monctl/__init__.py)
+          awk -v v="$v" '$0 == "## " v {on=1; next} /^## / {on=0} on' CHANGELOG.md > notes.md
+          test -s notes.md   # CHANGELOG.md needs a section for this version
           cat >> notes.md <<'MD'
 
           ### Install
@@ -78,6 +81,8 @@ jobs:
           MD
       - name: Checksums
         run: cd dist && sha256sum * > SHA256SUMS && cat SHA256SUMS
-      - run: gh release create "$GITHUB_REF_NAME" dist/* --title "monctl ${GITHUB_REF_NAME#v}" --notes-file notes.md
+      - run: ls -l dist && cat notes.md
+      - if: startsWith(github.ref, 'refs/tags/v')
+        run: gh release create "$GITHUB_REF_NAME" dist/* --title "monctl ${GITHUB_REF_NAME#v}" --notes-file notes.md
         env:
           GH_TOKEN: ${{ github.token }}
