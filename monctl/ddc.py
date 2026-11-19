@@ -16,6 +16,8 @@ INPUT_VCP = "60"
 INPUT_NAMES = {0x01: "vga1", 0x02: "vga2", 0x03: "dvi1", 0x04: "dvi2", 0x0f: "dp1", 0x10: "dp2",
                0x11: "hdmi1", 0x12: "hdmi2", 0x1b: "usbc"}
 INPUT_CODES = {v: k for k, v in INPUT_NAMES.items()}
+# Models that list VCP 60 and accept writes but never switch (tested on hardware): no Input control.
+INPUT_IGNORED = {"U28E590"}   # Samsung U28E590: also reports its input as 0x09 "Tuner-1"
 
 
 @dataclass
@@ -98,6 +100,8 @@ def _cache(key: str) -> Path:
 
 def inputs(bus: int, key: str) -> list[str]:
     """The monitor's inputs; the capabilities query takes seconds, so it is cached per model."""
+    if key in INPUT_IGNORED:
+        return []
     try:
         return json.loads(_cache(key).read_text())
     except (OSError, ValueError):

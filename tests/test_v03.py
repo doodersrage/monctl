@@ -394,3 +394,11 @@ def test_cli_auto_add_focused(cfg, capsys):
     assert cli.main(["auto", "add", "steam:game", "Game", "--focused"]) == 0
     assert settings.get("auto_rules") == [{"match": "steam:game", "profile": "Game", "focused": True}]
     assert "(only while focused)" in capsys.readouterr().out
+
+
+def test_ddc_input_ignored_models_have_no_inputs(monkeypatch):
+    from monctl import ddc
+    monkeypatch.setattr(runner, "run", lambda *a, **k: pytest.fail("must not query"))
+    assert monitors.Monitor(key="U28E590", label="S", bus=5).inputs == []
+    with pytest.raises(runner.ToolError):
+        monitors.Monitor(key="U28E590", label="S", bus=5).apply({"input": "hdmi1"})

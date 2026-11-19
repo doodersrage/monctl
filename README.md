@@ -110,7 +110,7 @@ when the game exits monctl returns to the profile scheduled for that time instea
 Each monitor's **Input** (window, tray menu or `monctl set KEY input=…`) lists what the monitor
 reports (`dp1`, `hdmi1`, … over DDC/CI; `dp`, `hdmi1`, `usbc` on MSI). The GUI asks before
 switching, since the screen then shows the other source. Inputs are not part of profiles. Some
-monitors (e.g. Samsung U28E590) do not report their current input; it shows as "(unknown)".
+monitors accept input switching over DDC/CI but ignore it; those known to (Samsung U28E590) get no Input control.
 
 ### Only while focused (KDE Plasma)
 
