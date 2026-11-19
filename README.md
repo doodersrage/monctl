@@ -60,6 +60,11 @@ a manually chosen profile is left alone.
 Applying a profile sends `game_mode` first, since the monitor's game-mode presets overwrite
 brightness, sharpness and other picture settings.
 
+## Troubleshooting
+
+If the tray hits an internal error it keeps running, shows a warning, and writes the
+traceback to `~/.local/state/monctl/tray.log`. Please include that file in bug reports.
+
 ## License
 
 MIT. msigd is GPLv2 and runs as a separate program.

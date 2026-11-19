@@ -523,6 +523,36 @@ class Tray(QSystemTrayIcon):
                 "monctl", f"Saved {n}", QSystemTrayIcon.MessageIcon.Information, 2000))
 
 
+def log_path() -> Path:
+    base = os.environ.get("XDG_STATE_HOME") or str(Path.home() / ".local" / "state")
+    return Path(base) / "monctl" / "tray.log"
+
+
+def install_excepthook(notify=None):
+    """Log unhandled errors instead of aborting.
+
+    PyQt6 calls qFatal() (abort) when a slot raises and sys.excepthook is the
+    default, which kills the tray. Log the traceback and keep running.
+    """
+    def hook(etype, value, tb):
+        text = "".join(traceback.format_exception(etype, value, tb))
+        print(text, file=sys.stderr, flush=True)
+        try:
+            log_path().parent.mkdir(parents=True, exist_ok=True)
+            import time
+            with open(log_path(), "a") as f:
+                f.write(f"--- {time.strftime('%Y-%m-%d %H:%M:%S')} monctl {__version__}\n{text}")
+        except OSError:
+            pass
+        if notify:
+            try:
+                notify(f"Internal error: {value}  (details in {log_path()})")
+            except Exception:  # noqa: BLE001 - never let the hook itself raise
+                pass
+    sys.excepthook = hook
+    return hook
+
+
 def run_tray(open_window: bool = False) -> int:
     app = QApplication.instance() or QApplication(sys.argv)
     app.setApplicationName("monctl")
@@ -533,6 +563,8 @@ def run_tray(open_window: bool = False) -> int:
         print("monctl: no system tray; opening the window instead", file=sys.stderr)
         open_window = True
     tray = Tray(ctl)
+    install_excepthook(lambda msg: tray.showMessage(
+        "monctl", msg, QSystemTrayIcon.MessageIcon.Warning, 8000))
     tray.show()
     if open_window:
         tray.open_window()

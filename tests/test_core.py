@@ -154,3 +154,25 @@ def test_autostart_toggle(monkeypatch, tmp_path):
     qt.set_autostart(False)
     assert not qt.autostart_path().exists()
     qt.set_autostart(False)  # idempotent
+
+
+def test_tray_excepthook_logs_and_survives(tmp_path, monkeypatch):
+    import sys
+    pytest.importorskip("PyQt6")
+    from PyQt6.QtCore import QObject, pyqtSignal
+    from PyQt6.QtWidgets import QApplication
+    from monctl import qt
+    monkeypatch.setenv("XDG_STATE_HOME", str(tmp_path))
+    monkeypatch.setattr(sys, "excepthook", sys.excepthook)   # restored after the test
+    QApplication.instance() or QApplication([])
+    seen = []
+    qt.install_excepthook(seen.append)
+
+    class Emitter(QObject):
+        sig = pyqtSignal()
+
+    e = Emitter()
+    e.sig.connect(lambda: 1 / 0)          # a slot that raises: would abort without the hook
+    e.sig.emit()
+    assert "ZeroDivisionError" in qt.log_path().read_text()
+    assert seen and "division by zero" in seen[0]
