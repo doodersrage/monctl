@@ -180,11 +180,15 @@ def test_brightness_steps_share_one_level_and_coalesce(ctl):
     ctl.monitors = [a, b]
     ctl.states = {"A": a.state(), "B": b.state()}
     assert ctl.level() == 62                                  # average of 95 and 30
+    import threading
+    gate = threading.Event()
+    ctl._submit(lambda: gate.wait(5))                         # keep the worker busy, like a slow write
     for _ in range(3):
         ctl.step_brightness(+10)                              # 62 -> 70 -> 80 -> 90 (snaps to grid)
+    gate.set()
     drain(ctl)
     assert a.st["brightness"] == 90 and b.st["brightness"] == 90
-    assert len(a.calls) <= 2                                  # repeats share a write
+    assert a.calls == [{"brightness": 90}]                    # presses while busy share one write
     ctl.step_brightness(+10)
     ctl.step_brightness(+10)                                  # clamps at 100
     drain(ctl)
