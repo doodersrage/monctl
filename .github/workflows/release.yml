@@ -1,0 +1,74 @@
+name: release
+
+# Push a tag like v0.5.0 to publish a GitHub release with Arch, Debian and Fedora packages.
+# Run it by hand (workflow_dispatch) to build the packages as artifacts without releasing.
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  deb:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - run: sudo apt-get update && sudo apt-get install -y --no-install-recommends build-essential debhelper dh-python python3-pytest
+      - run: packaging/build-deb.sh dist
+      - uses: actions/upload-artifact@v4
+        with: {name: deb, path: dist/*.deb}
+
+  rpm:
+    runs-on: ubuntu-latest
+    container: fedora:latest
+    steps:
+      - run: dnf install -y git rpm-build python3-devel
+      - uses: actions/checkout@v5
+      - run: packaging/build-rpm.sh dist
+      - uses: actions/upload-artifact@v4
+        with: {name: rpm, path: dist/*.rpm}
+
+  arch:
+    runs-on: ubuntu-latest
+    container: archlinux:latest
+    steps:
+      - run: pacman -Syu --noconfirm git
+      - uses: actions/checkout@v5
+      - run: packaging/build-arch.sh dist
+      - uses: actions/upload-artifact@v4
+        with: {name: arch, path: dist/*.pkg.tar.zst}
+
+  release:
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: [deb, rpm, arch]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/download-artifact@v4
+        with: {path: dist, merge-multiple: true}
+      - name: Check the tag matches the version
+        run: |
+          v=$(sed -n 's/^__version__ = "\(.*\)"/\1/p' monctl/__init__.py)
+          test "v$v" = "$GITHUB_REF_NAME"
+      - name: Release notes from CHANGELOG.md
+        run: |
+          awk -v v="${GITHUB_REF_NAME#v}" '$0 == "## " v {on=1; next} /^## / {on=0} on' CHANGELOG.md > notes.md
+          cat >> notes.md <<'MD'
+
+          ### Install
+          - **Arch Linux**: download the `.pkg.tar.zst` below, then `sudo pacman -U ./monctl-*-any.pkg.tar.zst`
+          - **Debian / Ubuntu**: download the `.deb` below, then `sudo apt install ./monctl_*_all.deb`
+          - **Fedora**: download the `.rpm` below, then `sudo dnf install ./monctl-*.noarch.rpm`
+          - **Others**: see the [README](https://github.com/doodersrage/monctl#install)
+
+          For the tray and window also install PyQt6 (`python-pyqt6` / `python3-pyqt6`); for keyboard shortcuts
+          and focus rules, dbus-python and PyGObject. MSI monitors need [msigd](https://github.com/doodersrage/msigd)
+          built for your model. To verify a download: `sha256sum -c SHA256SUMS --ignore-missing`
+          MD
+      - name: Checksums
+        run: cd dist && sha256sum * > SHA256SUMS && cat SHA256SUMS
+      - run: gh release create "$GITHUB_REF_NAME" dist/* --title "monctl ${GITHUB_REF_NAME#v}" --notes-file notes.md
+        env:
+          GH_TOKEN: ${{ github.token }}

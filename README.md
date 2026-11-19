@@ -44,7 +44,20 @@ If `msigd` is not on `PATH`: `monctl config msigd /path/to/msigd` (or set `MONCT
 
 ## Install
 
-**Arch Linux** (not on the AUR yet; the PKGBUILD downloads the tagged release):
+**Packages:** every [release](https://github.com/doodersrage/monctl/releases) has an Arch
+`.pkg.tar.zst`, a Debian/Ubuntu `.deb` and a Fedora `.rpm`:
+
+```
+sudo pacman -U ./monctl-*-any.pkg.tar.zst        # Arch
+sudo apt install ./monctl_*_all.deb              # Debian / Ubuntu
+sudo dnf install ./monctl-*.noarch.rpm           # Fedora
+```
+
+Install PyQt6 for the tray and window (`python-pyqt6` / `python3-pyqt6`; the .deb and .rpm recommend it).
+
+**From source:**
+
+Arch Linux (not on the AUR yet; this PKGBUILD downloads the tagged release):
 
 ```
 git clone https://github.com/doodersrage/monctl

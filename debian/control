@@ -1,0 +1,19 @@
+Source: monctl
+Section: utils
+Priority: optional
+Maintainer: Robert McDowell <1476679+doodersrage@users.noreply.github.com>
+Build-Depends: debhelper-compat (= 13), dh-python, python3, python3-pytest <!nocheck>
+Standards-Version: 4.6.2
+Homepage: https://github.com/doodersrage/monctl
+Rules-Requires-Root: no
+
+Package: monctl
+Architecture: all
+Depends: ${misc:Depends}, ${python3:Depends}, ddcutil
+Recommends: python3-pyqt6, python3-dbus, python3-gi
+Description: Monitor control: profiles, per-game profiles, tray app
+ Profiles across all monitors, applied automatically while a game runs,
+ on a schedule or from global keyboard shortcuts. Brightness, contrast and
+ input over DDC/CI for any monitor, and MSI on-screen settings (game mode,
+ Night Vision, crosshair...) over USB through msigd. Includes a settings
+ window, a tray icon and a command line tool.
