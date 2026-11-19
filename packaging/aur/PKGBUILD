@@ -1,0 +1,35 @@
+# Maintainer: Robert McDowell <1476679+doodersrage@users.noreply.github.com>
+pkgname=monctl-msi
+_name=monctl
+pkgver=0.2.2
+pkgrel=1
+pkgdesc="Monitor control: per-game profiles, tray, DDC/CI brightness and MSI OSD settings over USB"
+arch=('any')
+url="https://github.com/doodersrage/monctl"
+license=('MIT')
+provides=('monctl')
+conflicts=('monctl')
+depends=('python' 'ddcutil')
+makedepends=('python-build' 'python-installer' 'python-setuptools' 'python-wheel')
+checkdepends=('python-pytest' 'python-pyqt6')
+optdepends=('python-pyqt6: tray icon and window'
+            'msigd: MSI monitor settings over USB (needs a build that knows your model)')
+source=("$_name-$pkgver.tar.gz::$url/archive/refs/tags/v$pkgver.tar.gz")
+sha256sums=('1251be8c74917aceb75d35e919806917aa505d5ef99ea5e3e310d4fe71dfa317')
+
+build() {
+  cd "$_name-$pkgver"
+  /usr/bin/python -m build --wheel --no-isolation
+}
+
+check() {
+  cd "$_name-$pkgver"
+  QT_QPA_PLATFORM=offscreen /usr/bin/python -m pytest -q -p no:cacheprovider
+}
+
+package() {
+  cd "$_name-$pkgver"
+  /usr/bin/python -m installer --destdir="$pkgdir" dist/*.whl
+  install -Dm644 data/monctl.desktop "$pkgdir/usr/share/applications/monctl.desktop"
+  install -Dm644 LICENSE "$pkgdir/usr/share/licenses/$pkgname/LICENSE"
+}
