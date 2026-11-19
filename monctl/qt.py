@@ -19,7 +19,7 @@ from PyQt6.QtWidgets import (QApplication, QCheckBox, QComboBox, QDialog, QDialo
                              QListWidget, QListWidgetItem, QMenu, QMessageBox, QPushButton,
                              QSlider, QSpinBox, QSystemTrayIcon, QTimeEdit, QVBoxLayout, QWidget)
 
-from . import __version__, autoprofile, focus, hotplug, levels, msi, profiles, runner, schedule, settings, shortcuts
+from . import __version__, autoprofile, focus, hotplug, levels, msi, profiles, runner, schedule, settings, shortcuts, steam
 from .monitors import Monitor, discover
 
 MSI_CHOICES = ("game_mode", "night_vision", "smart_crosshair_icon", "smart_crosshair_color",
@@ -68,7 +68,12 @@ def confirm_input(parent, m: Monitor, value: str) -> bool:
         "monitor's buttons or with monctl.") == QMessageBox.StandardButton.Yes
 
 
+ACRONYMS = {"fps", "rts", "rpg", "ai"}
+
+
 def nice(s: str) -> str:
+    if s in ACRONYMS:
+        return s.upper()
     return s.replace("_", " ").replace("icon", "icon ").capitalize().strip()
 
 
@@ -481,6 +486,8 @@ class RuleDialog(QDialog):
         form = QFormLayout(self)
         self.app = QComboBox(editable=True)
         self.app.addItem("Any Steam game", autoprofile.STEAM_GAME)
+        for appid, name in steam.installed_games().items():
+            self.app.addItem(f"Steam: {name}", f"{steam.PREFIX}{appid}")
         for n in autoprofile.running_names(autoprofile.Scanner().scan()):
             self.app.addItem(n, n)
         self.app.setToolTip("A running app, or type a process name (.exe optional for Proton games)")
@@ -508,8 +515,18 @@ class RuleDialog(QDialog):
         return r
 
 
-def rule_text(r: dict) -> str:
-    what = "Any Steam game" if r["match"] == autoprofile.STEAM_GAME else r["match"]
+def match_text(match: str, games: dict | None = None) -> str:
+    if match == autoprofile.STEAM_GAME:
+        return "Any Steam game"
+    appid = steam.app_id(match)
+    if appid:
+        name = (games if games is not None else steam.installed_games()).get(appid)
+        return f"Steam: {name}" if name else f"Steam app {appid}"
+    return match
+
+
+def rule_text(r: dict, games: dict | None = None) -> str:
+    what = match_text(r["match"], games)
     return f"{what}{' (focused)' if r.get('focused') else ''}  →  {r['profile']}"
 
 
@@ -555,8 +572,9 @@ class AutoBox(QGroupBox):
             self.default.addItem(n, n)
         self.default.setCurrentIndex(max(0, self.default.findData(cfg["auto_default"])))
         self.list.clear()
+        games = steam.installed_games()
         for r in cfg["auto_rules"]:
-            it = QListWidgetItem(rule_text(r))
+            it = QListWidgetItem(rule_text(r, games))
             it.setData(Qt.ItemDataRole.UserRole, r["match"])
             self.list.addItem(it)
 

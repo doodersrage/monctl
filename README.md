@@ -1,5 +1,7 @@
 # monctl
 
+[![tests](https://github.com/doodersrage/monctl/actions/workflows/tests.yml/badge.svg)](https://github.com/doodersrage/monctl/actions/workflows/tests.yml)
+
 Monitor control for Linux, with profiles, a tray icon and a settings window.
 
 - **MSI monitors** are controlled over USB through [msigd](https://github.com/doodersrage/msigd/tree/mag323upf)
@@ -15,6 +17,8 @@ Monitor control for Linux, with profiles, a tray icon and a settings window.
   that skipped them is finished on them. Settings you change from the monitor's menu are left alone.
 
 Verified on an MSI MAG323UPF (FW V61) alongside a ViewSonic VX3418-2KPC and a Samsung U28E590.
+
+![monctl window](docs/window.png)
 
 ## Safety
 
@@ -72,6 +76,7 @@ monctl profile save Gaming | apply Gaming | list | show Gaming | delete Gaming
 monctl auto add steam:game Gaming             # automatic profiles
 monctl auto add blender Work
 monctl auto add steam:game Gaming --focused   # only while the game's window has focus (KDE)
+monctl auto games                             # installed Steam games, for rules like steam:646570
 monctl auto default Desktop                   # applied when the last matching app exits
 monctl auto on | off | list | remove blender | procs
 monctl watch                                  # run automatic profiles without the tray
@@ -80,7 +85,9 @@ monctl tray [--window]
 
 Automatic-profile rules match a process name (case-insensitive, `.exe` optional so Proton games
 match by their Windows executable) or `steam:game` for any game started by Steam (detected through
-the `SteamAppId`/`SteamGameId` environment Steam gives its games). The first matching rule wins.
+the `SteamAppId`/`SteamGameId` environment Steam gives its games), or `steam:<appid>` for one
+Steam game (pick it by name in the window, or list ids with `monctl auto games`). The first matching
+rule wins.
 `monctl auto procs` lists what is running. Nothing is applied at startup unless a rule matches, so
 a manually chosen profile is left alone.
 

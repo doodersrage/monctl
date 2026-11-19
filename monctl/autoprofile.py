@@ -7,8 +7,9 @@ Rules live in settings.json:
                  {"match": "blender", "profile": "Work"}]
 
 A rule's "match" is a process name (case-insensitive; ".exe" optional, so
-Proton/Wine games match by their Windows executable name) or "steam:game" for
-any game launched by Steam. The first matching rule wins.
+Proton/Wine games match by their Windows executable name), "steam:game" for
+any game launched by Steam, or "steam:<appid>" for one Steam game (see steam.py).
+The first matching rule wins.
 """
 
 from __future__ import annotations
@@ -107,6 +108,8 @@ class Scanner:
 def rule_matches(match: str, procs: list[Proc]) -> bool:
     if match == STEAM_GAME:
         return any(p.steam_game for p in procs)
+    if match.startswith("steam:") and match[6:].isdigit():      # one Steam game, by app id
+        return any(p.steam_game and p.steam_app == match[6:] for p in procs)
     want = _norm(match)
     return any(want in p.names for p in procs)
 

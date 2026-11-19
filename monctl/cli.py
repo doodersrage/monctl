@@ -6,7 +6,7 @@ import argparse
 import json
 import sys
 
-from . import __version__, autoprofile, levels, msi, profiles, runner, schedule, settings
+from . import __version__, autoprofile, levels, msi, profiles, runner, schedule, settings, steam
 from .monitors import Monitor, discover, find
 
 
@@ -168,6 +168,15 @@ def cmd_auto(a, _mons):
         if len(left) == len(rules):
             return _err(f"no rule for {a.args[0]!r}")
         settings.set(auto_rules=left)
+    elif a.action == "games":
+        games = steam.installed_games()
+        for appid, name in games.items():
+            print(f"  steam:{appid:<10} {name}")
+        if not games:
+            print("  (no Steam library found)")
+        else:
+            print("\nuse one with: monctl auto add steam:APPID PROFILE")
+        return 0
     elif a.action == "procs":
         procs = autoprofile.Scanner().scan()
         games = sorted({n for p in procs if p.steam_game for n in p.names})
@@ -175,10 +184,13 @@ def cmd_auto(a, _mons):
         print("\n".join(autoprofile.running_names(procs)))
         return 0
     cfg = settings.load()
+    games = steam.installed_games() if any(steam.app_id(r["match"]) for r in cfg["auto_rules"]) else {}
     print(f"automatic profiles: {'on' if cfg['auto_enabled'] else 'off'}"
           f"   default: {cfg['auto_default'] or '(none)'}")
     for i, r in enumerate(cfg["auto_rules"], 1):
-        print(f"  {i}. {r['match']:24} -> {r['profile']}{'   (only while focused)' if r.get('focused') else ''}")
+        name = games.get(steam.app_id(r["match"]) or "", "")
+        what = f"{r['match']} ({name})" if name else r["match"]
+        print(f"  {i}. {what:36} -> {r['profile']}{'   (only while focused)' if r.get('focused') else ''}")
     if not cfg["auto_rules"]:
         print("  (no rules; add one with: monctl auto add steam:game Gaming)")
     return 0
@@ -284,9 +296,9 @@ def build_parser() -> argparse.ArgumentParser:
     s.add_argument("name", nargs="?")
     s.set_defaults(fn=cmd_profile)
 
-    s = sub.add_parser("auto", help="automatic profiles: list|on|off|default|add|remove|procs")
+    s = sub.add_parser("auto", help="automatic profiles: list|on|off|default|add|remove|procs|games")
     s.add_argument("action", nargs="?", default="list",
-                   choices=["list", "on", "off", "default", "add", "remove", "procs"])
+                   choices=["list", "on", "off", "default", "add", "remove", "procs", "games"])
     s.add_argument("args", nargs="*")
     s.add_argument("--focused", action="store_true",
                    help="with add: only while the app's window has focus (KDE Plasma, tray only)")
