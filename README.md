@@ -9,6 +9,10 @@ Monitor control for Linux, with profiles, a tray icon and a settings window.
   CLI, the tray or the window.
 - **Automatic profiles** switch while an app runs (e.g. any Steam game → Gaming) and back to a default
   profile when it exits.
+- **Keyboard shortcuts** (KDE Plasma 6 and other desktops with the GlobalShortcuts portal): apply
+  profiles 1–4, cycle profiles, step brightness on all monitors, toggle automatic profiles.
+- **Monitors that come back** after being off, unplugged or asleep are re-detected, and a profile
+  that skipped them is finished on them. Settings you change from the monitor's menu are left alone.
 
 Verified on an MSI MAG323UPF (FW V61) alongside a ViewSonic VX3418-2KPC and a Samsung U28E590.
 
@@ -27,6 +31,7 @@ and diffed against the full monitor state) and refuses these outright:
 ## Requirements
 
 - Python ≥ 3.9, PyQt6 for the tray/window
+- `python-dbus` and `python-gobject` for keyboard shortcuts (optional)
 - `ddcutil` with the `i2c-dev` module loaded (DDC/CI monitors)
 - `msigd` from the fork above for MSI monitors (`make TARGETOS=arch`), and access to the monitor's
   `/dev/hidraw*` node (desktop sessions usually grant this; otherwise see msigd's udev rule)
@@ -79,6 +84,18 @@ a manually chosen profile is left alone.
 
 Applying a profile sends `game_mode` first, since the monitor's game-mode presets overwrite
 brightness, sharpness and other picture settings.
+
+## Keyboard shortcuts
+
+Turn on **Keyboard shortcuts** in the tray menu. The desktop asks once to confirm them; change
+them later with **Change shortcuts…** in the tray menu (or System Settings → Shortcuts → monctl).
+
+| Shortcut (suggested) | Action |
+|---|---|
+| Meta+Alt+1 … 4 | Apply profile 1–4 (in `monctl profile list` order) |
+| Meta+Alt+N | Next profile |
+| Meta+Alt+Page Up / Page Down | Brightness ±10 on every monitor |
+| Meta+Alt+A | Automatic profiles on/off |
 
 ## Troubleshooting
 

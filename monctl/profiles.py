@@ -53,20 +53,31 @@ def delete(name: str) -> bool:
     return True
 
 
-def apply(name: str, mons: list[Monitor]) -> list[str]:
-    """Apply a profile; return warnings (missing monitors, failures)."""
+def apply(name: str, mons: list[Monitor], only: set[str] | None = None,
+          skipped: set[str] | None = None) -> list[str]:
+    """Apply a profile; return warnings (missing monitors, failures).
+
+    only:    apply to these monitor keys alone (finishing an earlier, partial apply).
+    skipped: filled with the keys that were not connected or failed, to retry later.
+    """
     prof = load().get(name)
     if prof is None:
         raise KeyError(name)
     by_key = {m.key: m for m in mons}
     warnings = []
     for key, values in prof.items():
+        if only is not None and key not in only:
+            continue
         m = by_key.get(key)
         if m is None:
             warnings.append(f"{key}: not connected, skipped")
+            if skipped is not None:
+                skipped.add(key)
             continue
         try:
             m.apply(values)
         except runner.ToolError as e:
             warnings.append(f"{key}: {e}")
+            if skipped is not None:
+                skipped.add(key)
     return warnings

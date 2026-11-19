@@ -142,21 +142,37 @@ def cmd_auto(a, _mons):
 def cmd_watch(a, _mons):
     import time
 
-    def apply(name):
-        mons = discover()
-        warns = profiles.apply(name, mons)
-        print(f"{time.strftime('%H:%M:%S')} applied {name!r}", flush=True)
+    from . import hotplug
+    unfinished: dict = {}          # profile name -> monitor keys it skipped
+
+    def apply(name, only=None):
+        skipped: set[str] = set()
+        warns = profiles.apply(name, discover(), only=only, skipped=skipped)
+        unfinished.clear()
+        if skipped:
+            unfinished[name] = skipped
+        what = f" to {', '.join(sorted(only))}" if only else ""
+        print(f"{time.strftime('%H:%M:%S')} applied {name!r}{what}", flush=True)
         for w in warns:
             print(f"  warning: {w}", file=sys.stderr, flush=True)
 
     if not settings.get("auto_enabled"):
         print("automatic profiles are off; enabling them for this session only", file=sys.stderr)
     w = autoprofile.Watcher(apply)
+    hp = hotplug.Hotplug()
+    retry_at = None
     try:
         while True:
             cfg = settings.load()
             cfg["auto_enabled"] = True
             try:
+                if hp.tick():
+                    retry_at = time.monotonic() + 4      # let the monitor finish waking up
+                if retry_at and time.monotonic() >= retry_at:
+                    retry_at = None
+                    for name, keys in list(unfinished.items()):
+                        if name in profiles.load():
+                            apply(name, only=keys)
                 w.tick(cfg)
             except runner.ToolError as e:
                 print(f"monctl: {e}", file=sys.stderr, flush=True)

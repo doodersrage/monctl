@@ -11,6 +11,7 @@ DEFAULTS = {
     "auto_enabled": False,  # automatic profiles (see autoprofile.py)
     "auto_default": "",     # profile applied when the last matching app exits
     "auto_rules": [],       # [{"match": "steam:game" | process name, "profile": name}]
+    "shortcuts": False,     # global keyboard shortcuts via the XDG portal (see shortcuts.py)
 }
 
 

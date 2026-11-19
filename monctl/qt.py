@@ -19,7 +19,7 @@ from PyQt6.QtWidgets import (QApplication, QCheckBox, QComboBox, QDialog, QDialo
                              QListWidget, QListWidgetItem, QMenu, QMessageBox, QPushButton,
                              QSlider, QSystemTrayIcon, QVBoxLayout, QWidget)
 
-from . import __version__, autoprofile, msi, profiles, runner, settings
+from . import __version__, autoprofile, hotplug, msi, profiles, runner, settings, shortcuts
 from .monitors import Monitor, discover
 
 MSI_CHOICES = ("game_mode", "night_vision", "smart_crosshair_icon", "smart_crosshair_color",
@@ -93,6 +93,9 @@ class Controller(QObject):
     busy = pyqtSignal(bool)
     auto_switched = pyqtSignal(str)           # profile applied by an automatic rule
     profiles_changed = pyqtSignal()
+    notice = pyqtSignal(str)                  # short informational message
+
+    HOTPLUG_SETTLE_MS = 4000                  # monitors answer DDC/USB a few seconds after waking
 
     def __init__(self):
         super().__init__()
@@ -102,12 +105,24 @@ class Controller(QObject):
         self.states: dict[str, dict] = {}
         self._jobs: set[_Job] = set()
         self._pending = 0
+        self.current_profile: str | None = None
+        self.unfinished: tuple[str, set[str]] | None = None   # profile + monitors it skipped
+        self._bright: dict[str, int] = {}                     # brightness targets for key repeats
+        self._bright_queued = False
         self.watcher = autoprofile.Watcher(self._auto_apply)
+        self.hotplug = hotplug.Hotplug()
+        self.settle = QTimer(self, singleShot=True, interval=self.HOTPLUG_SETTLE_MS)
+        self.settle.timeout.connect(self.refresh)
         self.auto_timer = QTimer(self, interval=3000)
-        self.auto_timer.timeout.connect(self._auto_tick)
+        self.auto_timer.timeout.connect(self._tick)
         self.auto_timer.start()
 
-    def _auto_tick(self):
+    def _tick(self):
+        try:
+            if self.hotplug.tick():
+                self.settle.start()    # (re)start: wait until things stop changing
+        except Exception as e:  # noqa: BLE001 - keep the timer alive
+            self.error.emit(f"Monitor detection: {e}")
         if not self.monitors:      # wait for the first discovery
             return
         try:
@@ -145,10 +160,22 @@ class Controller(QObject):
 
         def done(res):
             self.monitors, self.states = res
+            self._bright.clear()
             self.monitors_changed.emit(self.monitors)
             for k, st in self.states.items():
                 self.state_changed.emit(k, st)
+            self._finish_unfinished()
         self._submit(work, done)
+
+    def _finish_unfinished(self):
+        """A profile skipped some monitors (off/unplugged); apply it to them now that they're back."""
+        if not self.unfinished:
+            return
+        name, keys = self.unfinished
+        back = {m.key for m in self.monitors} & keys
+        if back and name in profiles.load():
+            self.apply_profile(name, only=back, on_done=lambda n: self.notice.emit(
+                f"Applied {n} to {', '.join(sorted(back))}"))
 
     def monitor(self, key: str) -> Monitor | None:
         return next((m for m in self.monitors if m.key == key), None)
@@ -169,16 +196,24 @@ class Controller(QObject):
             self.state_changed.emit(m.key, st)
         self._submit(work, done)
 
-    def apply_profile(self, name: str, on_done=None):
+    def apply_profile(self, name: str, on_done=None, only: set[str] | None = None):
         mons = list(self.monitors)
+        if only is None:
+            self.current_profile = name
+            self.unfinished = None
 
         def work():
-            warns = profiles.apply(name, mons)
-            return warns, {m.key: m.state() for m in mons}
+            skipped: set[str] = set()
+            warns = profiles.apply(name, mons, only=only, skipped=skipped)
+            touched = [m for m in mons if only is None or m.key in only]
+            return warns, skipped, {m.key: m.state() for m in touched if m.key not in skipped}
 
         def done(res):
-            warns, states = res
+            warns, skipped, states = res
+            if self.current_profile == name:      # not replaced by a newer apply meanwhile
+                self.unfinished = (name, skipped) if skipped else None
             self.states.update(states)
+            self._bright.clear()
             for k, st in states.items():
                 self.state_changed.emit(k, st)
             if warns:
@@ -186,6 +221,61 @@ class Controller(QObject):
             if on_done:
                 on_done(name)
         self._submit(work, done)
+
+    # -- shortcut actions -------------------------------------------------
+    def apply_profile_at(self, index: int):
+        names = list(profiles.load())
+        if index >= len(names):
+            self.notice.emit(f"No profile {index + 1} (there are {len(names)})")
+            return
+        self.apply_profile(names[index], on_done=lambda n: self.notice.emit(f"Applied {n}"))
+
+    def next_profile(self):
+        names = list(profiles.load())
+        if not names:
+            self.notice.emit("No profiles yet")
+            return
+        i = names.index(self.current_profile) + 1 if self.current_profile in names else 0
+        self.apply_profile_at(i % len(names))
+
+    def step_brightness(self, delta: int):
+        """Change every monitor's brightness; key repeats coalesce into one hardware write."""
+        for m in self.monitors:
+            cur = self._bright.get(m.key)
+            if cur is None:
+                try:
+                    cur = int(self.states.get(m.key, {}).get("brightness"))
+                except (TypeError, ValueError):
+                    continue
+            self._bright[m.key] = max(0, min(100, cur + delta))
+        if not self._bright:
+            return
+        levels = sorted(set(self._bright.values()))
+        self.notice.emit("Brightness " + "/".join(f"{v}%" for v in levels))
+        if self._bright_queued:
+            return
+        self._bright_queued = True
+        mons = list(self.monitors)
+
+        def work():
+            self._bright_queued = False          # later presses queue a new write
+            targets = dict(self._bright)
+            for m in mons:
+                if m.key in targets:
+                    m.apply({"brightness": targets[m.key]})
+            return {m.key: targets[m.key] for m in mons if m.key in targets}
+
+        def done(applied):
+            for k, v in applied.items():
+                self.states.setdefault(k, {})["brightness"] = v
+                self.state_changed.emit(k, self.states[k])
+        self._submit(work, done)
+
+    def toggle_auto(self):
+        on = not settings.get("auto_enabled")
+        settings.set(auto_enabled=on)
+        self.profiles_changed.emit()
+        self.notice.emit(f"Automatic profiles {'on' if on else 'off'}")
 
     def save_profile(self, name: str, on_done=None):
         mons = list(self.monitors)
@@ -458,7 +548,38 @@ class Tray(QSystemTrayIcon):
             "monctl", msg, QSystemTrayIcon.MessageIcon.Warning, 6000))
         ctl.auto_switched.connect(lambda n: self.showMessage(
             "monctl", f"Switched to {n}", QSystemTrayIcon.MessageIcon.Information, 2500))
+        ctl.notice.connect(lambda msg: self.showMessage(
+            "monctl", msg, QSystemTrayIcon.MessageIcon.Information, 1500))
+        self.keys: shortcuts.PortalShortcuts | None = None
+        if settings.get("shortcuts"):
+            self.start_shortcuts()
         self._build()
+
+    # -- global shortcuts -------------------------------------------------
+    ACTIONS = {
+        "profile-1": lambda c: c.apply_profile_at(0), "profile-2": lambda c: c.apply_profile_at(1),
+        "profile-3": lambda c: c.apply_profile_at(2), "profile-4": lambda c: c.apply_profile_at(3),
+        "profile-next": lambda c: c.next_profile(),
+        "brightness-up": lambda c: c.step_brightness(+10),
+        "brightness-down": lambda c: c.step_brightness(-10),
+        "auto-toggle": lambda c: c.toggle_auto(),
+    }
+
+    def start_shortcuts(self):
+        if self.keys is not None:
+            return
+        self.keys = shortcuts.PortalShortcuts(
+            on_activated=lambda sid: sid in self.ACTIONS and self.ACTIONS[sid](self.ctl),
+            on_error=self.ctl.error.emit)
+        self.keys.start()
+
+    def set_shortcuts(self, on: bool):
+        settings.set(shortcuts=on)
+        if on:
+            self.start_shortcuts()
+        elif self.keys is not None:
+            self.keys.stop()
+            self.keys = None
 
     def open_window(self):
         if self.window is None:
@@ -499,6 +620,16 @@ class Tray(QSystemTrayIcon):
         m.addSeparator()
         m.addAction("Open window…", self.open_window)
         m.addAction("Re-detect monitors", self.ctl.refresh)
+        k = m.addAction("Keyboard shortcuts")
+        k.setCheckable(True)
+        k.setChecked(self.keys is not None)
+        reason = shortcuts.unavailable_reason()
+        if reason:
+            k.setEnabled(False)
+            k.setToolTip(reason)
+        k.toggled.connect(self.set_shortcuts)
+        if self.keys is not None and self.keys.session is not None:
+            m.addAction("Change shortcuts…", self.keys.configure)
         a = m.addAction("Start at login")
         a.setCheckable(True)
         a.setChecked(autostart_path().is_file())
