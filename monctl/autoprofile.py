@@ -130,6 +130,15 @@ class Watcher:
         self.scanner = scanner or Scanner()
         self.active: str | None = None
 
+    @staticmethod
+    def leave_profile(cfg: dict) -> str | None:
+        """Profile to return to when the last matching app exits: the schedule's current slot,
+        else auto_default."""
+        import datetime as dt
+
+        from . import schedule
+        return schedule.current(dt.datetime.now(), cfg) or cfg.get("auto_default") or None
+
     def tick(self, cfg: dict | None = None) -> str | None:
         """Scan once; return the profile applied, if any."""
         cfg = cfg or settings.load()
@@ -140,7 +149,7 @@ class Watcher:
         if target == self.active:
             return None
         previous, self.active = self.active, target
-        profile = target or (cfg.get("auto_default") if previous else None) or None
+        profile = target or (self.leave_profile(cfg) if previous else None) or None
         if profile:
             self.apply(profile)
         return profile

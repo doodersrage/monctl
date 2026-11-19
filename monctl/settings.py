@@ -11,7 +11,9 @@ DEFAULTS = {
     "auto_enabled": False,  # automatic profiles (see autoprofile.py)
     "auto_default": "",     # profile applied when the last matching app exits
     "auto_rules": [],       # [{"match": "steam:game" | process name, "profile": name}]
-    "shortcuts": False,     # global keyboard shortcuts via the XDG portal (see shortcuts.py)
+    "shortcuts": False,
+    "brightness_range": {},  # per-monitor [low, high] for the "all monitors" level (levels.py)
+    "schedule": [],         # [{"at": "21:00", "profile": "Night"}] (schedule.py)     # global keyboard shortcuts via the XDG portal (see shortcuts.py)
 }
 
 
@@ -25,7 +27,7 @@ def path() -> Path:
 
 
 def load() -> dict:
-    s = {k: (list(v) if isinstance(v, list) else v) for k, v in DEFAULTS.items()}
+    s = {k: (type(v)(v) if isinstance(v, (list, dict)) else v) for k, v in DEFAULTS.items()}
     try:
         data = json.loads(path().read_text())
         if isinstance(data, dict):

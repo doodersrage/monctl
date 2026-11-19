@@ -17,9 +17,9 @@ from PyQt6.QtGui import QAction, QActionGroup, QIcon
 from PyQt6.QtWidgets import (QApplication, QCheckBox, QComboBox, QDialog, QDialogButtonBox,
                              QFormLayout, QGroupBox, QHBoxLayout, QInputDialog, QLabel,
                              QListWidget, QListWidgetItem, QMenu, QMessageBox, QPushButton,
-                             QSlider, QSystemTrayIcon, QVBoxLayout, QWidget)
+                             QSlider, QSpinBox, QSystemTrayIcon, QTimeEdit, QVBoxLayout, QWidget)
 
-from . import __version__, autoprofile, hotplug, msi, profiles, runner, settings, shortcuts
+from . import __version__, autoprofile, hotplug, levels, msi, profiles, runner, schedule, settings, shortcuts
 from .monitors import Monitor, discover
 
 MSI_CHOICES = ("game_mode", "night_vision", "smart_crosshair_icon", "smart_crosshair_color",
@@ -94,6 +94,7 @@ class Controller(QObject):
     auto_switched = pyqtSignal(str)           # profile applied by an automatic rule
     profiles_changed = pyqtSignal()
     notice = pyqtSignal(str)                  # short informational message
+    levels_changed = pyqtSignal()             # brightness matching ranges edited
 
     HOTPLUG_SETTLE_MS = 4000                  # monitors answer DDC/USB a few seconds after waking
 
@@ -109,7 +110,9 @@ class Controller(QObject):
         self.unfinished: tuple[str, set[str]] | None = None   # profile + monitors it skipped
         self._bright: dict[str, int] = {}                     # brightness targets for key repeats
         self._bright_queued = False
+        self._level: int | None = None                        # last "all monitors" level set
         self.watcher = autoprofile.Watcher(self._auto_apply)
+        self.scheduler = schedule.Scheduler()
         self.hotplug = hotplug.Hotplug()
         self.settle = QTimer(self, singleShot=True, interval=self.HOTPLUG_SETTLE_MS)
         self.settle.timeout.connect(self.refresh)
@@ -129,6 +132,17 @@ class Controller(QObject):
             self.watcher.tick()
         except Exception as e:  # noqa: BLE001 - keep the timer alive
             self.error.emit(f"Automatic profiles: {e}")
+        try:
+            due = self.scheduler.tick()
+            # while a game rule is active the game's profile wins; the schedule's current slot
+            # is applied when it exits (Watcher.leave_profile)
+            if due and self.watcher.active is None:
+                if due in profiles.load():
+                    self.apply_profile(due, on_done=lambda n: self.notice.emit(f"Scheduled: {n}"))
+                else:
+                    self.error.emit(f"Schedule: no profile named {due!r}")
+        except Exception as e:  # noqa: BLE001 - keep the timer alive
+            self.error.emit(f"Schedule: {e}")
 
     def _auto_apply(self, name: str):
         if name not in profiles.load():
@@ -161,6 +175,7 @@ class Controller(QObject):
         def done(res):
             self.monitors, self.states = res
             self._bright.clear()
+            self._level = None
             self.monitors_changed.emit(self.monitors)
             for k, st in self.states.items():
                 self.state_changed.emit(k, st)
@@ -214,6 +229,7 @@ class Controller(QObject):
                 self.unfinished = (name, skipped) if skipped else None
             self.states.update(states)
             self._bright.clear()
+            self._level = None
             for k, st in states.items():
                 self.state_changed.emit(k, st)
             if warns:
@@ -238,20 +254,30 @@ class Controller(QObject):
         i = names.index(self.current_profile) + 1 if self.current_profile in names else 0
         self.apply_profile_at(i % len(names))
 
+    def level(self) -> int | None:
+        """The current "all monitors" brightness level (average over monitors, after matching)."""
+        vals = [levels.to_level(m.key, self.states.get(m.key, {}).get("brightness")) for m in self.monitors]
+        vals = [v for v in vals if v is not None]
+        return round(sum(vals) / len(vals)) if vals else None
+
     def step_brightness(self, delta: int):
-        """Change every monitor's brightness; key repeats coalesce into one hardware write."""
+        cur = self._level if self._level is not None else self.level()
+        if cur is None:
+            return
+        # snap to the step grid so +10 from 47 gives 50, not 57
+        new = (cur // abs(delta) + (1 if delta > 0 else 0)) * abs(delta) if cur % abs(delta) else cur + delta
+        self.set_level(max(0, min(100, new)))
+
+    def set_level(self, level: int, quiet: bool = False):
+        """Set every monitor to the "all monitors" level; rapid calls coalesce into one write."""
+        self._level = level
+        rng = levels.ranges()
         for m in self.monitors:
-            cur = self._bright.get(m.key)
-            if cur is None:
-                try:
-                    cur = int(self.states.get(m.key, {}).get("brightness"))
-                except (TypeError, ValueError):
-                    continue
-            self._bright[m.key] = max(0, min(100, cur + delta))
+            self._bright[m.key] = levels.to_monitor(m.key, level, rng)
         if not self._bright:
             return
-        levels = sorted(set(self._bright.values()))
-        self.notice.emit("Brightness " + "/".join(f"{v}%" for v in levels))
+        if not quiet:
+            self.notice.emit(f"Brightness {level}%")
         if self._bright_queued:
             return
         self._bright_queued = True
@@ -261,7 +287,7 @@ class Controller(QObject):
             self._bright_queued = False          # later presses queue a new write
             targets = dict(self._bright)
             for m in mons:
-                if m.key in targets:
+                if m.key in targets and str(self.states.get(m.key, {}).get("brightness")) != str(targets[m.key]):
                     m.apply({"brightness": targets[m.key]})
             return {m.key: targets[m.key] for m in mons if m.key in targets}
 
@@ -310,6 +336,22 @@ class MonitorBox(QGroupBox):
             row.addWidget(val)
             form.addRow(LABELS[key], row)
             self.sliders[key] = (s, val)
+        lo, hi = levels._range(m.key, None)
+        self.lo, self.hi = QSpinBox(), QSpinBox()
+        for sb, v in ((self.lo, lo), (self.hi, hi)):
+            sb.setRange(0, 100)
+            sb.setValue(v)
+            sb.setSuffix("%")
+            sb.editingFinished.connect(self._save_range)
+        row = QHBoxLayout()
+        row.addWidget(self.lo)
+        row.addWidget(QLabel("to"))
+        row.addWidget(self.hi)
+        row.addStretch()
+        rlab = QLabel("All-monitor range")
+        rlab.setToolTip("Brightness this monitor gets when \"All monitors\" is at 0% and 100%.\n"
+                        "Narrow it on monitors that look brighter than the others.")
+        form.addRow(rlab, row)
         self.combos: dict[str, QComboBox] = {}
         if m.msi:
             for key in MSI_CHOICES:
@@ -323,6 +365,14 @@ class MonitorBox(QGroupBox):
         self._timer.timeout.connect(self._flush)
         self._queued: dict = {}
         self.setEnabled(False)
+
+    def _save_range(self):
+        lo, hi = self.lo.value(), self.hi.value()
+        if lo >= hi:
+            self.ctl.error.emit("Range: the low end must be below the high end")
+            return
+        levels.set_range(self.m.key, None, None) if (lo, hi) == (0, 100) else levels.set_range(self.m.key, lo, hi)
+        self.ctl.levels_changed.emit()
 
     def _debounce(self, key, slider):
         self._queued[key] = slider.value()
@@ -398,7 +448,8 @@ class AutoBox(QGroupBox):
         top.addStretch()
         top.addWidget(QLabel("Afterwards:"))
         self.default = QComboBox()
-        self.default.setToolTip("Profile applied when the last matching app exits")
+        self.default.setToolTip("Profile applied when the last matching app exits\n"
+                                "(if a Schedule is set, its current profile is used instead)")
         self.default.activated.connect(lambda _i: settings.set(auto_default=self.default.currentData()))
         top.addWidget(self.default)
         lay.addLayout(top)
@@ -450,6 +501,53 @@ class AutoBox(QGroupBox):
             self.reload()
 
 
+class ScheduleBox(QGroupBox):
+    def __init__(self, ctl: Controller):
+        super().__init__("Schedule")
+        self.ctl = ctl
+        self.setToolTip("Apply a profile at a time of day. After a game, automatic profiles\n"
+                        "return to the profile scheduled for that time.")
+        lay = QVBoxLayout(self)
+        self.list = QListWidget()
+        self.list.setMaximumHeight(80)
+        lay.addWidget(self.list)
+        row = QHBoxLayout()
+        self.at = QTimeEdit()
+        self.at.setDisplayFormat("HH:mm")
+        self.prof = QComboBox()
+        b_add, b_del = QPushButton("Add"), QPushButton("Remove")
+        b_add.clicked.connect(self._add)
+        b_del.clicked.connect(self._remove)
+        for w in (QLabel("At"), self.at, self.prof, b_add, b_del):
+            row.addWidget(w)
+        row.addStretch()
+        lay.addLayout(row)
+        ctl.profiles_changed.connect(self.reload)
+        self.reload()
+
+    def reload(self):
+        self.prof.clear()
+        self.prof.addItems(list(profiles.load()))
+        self.list.clear()
+        for e in settings.get("schedule"):
+            it = QListWidgetItem(f"{e['at']}  →  {e['profile']}")
+            it.setData(Qt.ItemDataRole.UserRole, e["at"])
+            self.list.addItem(it)
+
+    def _add(self):
+        if not self.prof.currentText():
+            QMessageBox.information(self, "Schedule", "Save a profile first.")
+            return
+        schedule.add(self.at.time().toString("HH:mm"), self.prof.currentText())
+        self.reload()
+
+    def _remove(self):
+        it = self.list.currentItem()
+        if it:
+            schedule.remove(it.data(Qt.ItemDataRole.UserRole))
+            self.reload()
+
+
 class Window(QWidget):
     def __init__(self, ctl: Controller):
         super().__init__()
@@ -477,16 +575,35 @@ class Window(QWidget):
         bar.addWidget(b_ref)
         self.lay.addLayout(bar)
 
+        allrow = QHBoxLayout()
+        self.all = QSlider(Qt.Orientation.Horizontal)
+        self.all.setRange(0, 100)
+        self.all.setPageStep(10)
+        self.all_val = QLabel("–")
+        self.all_val.setMinimumWidth(36)
+        self.all.valueChanged.connect(lambda v: self.all_val.setText(f"{v}%"))
+        self.all.sliderReleased.connect(lambda: self.ctl.set_level(self.all.value(), quiet=True))
+        self.all.actionTriggered.connect(lambda _a: QTimer.singleShot(
+            0, lambda: None if self.all.isSliderDown() else self.ctl.set_level(self.all.value(), quiet=True)))
+        allrow.addWidget(QLabel("All monitors:"))
+        allrow.addWidget(self.all)
+        allrow.addWidget(self.all_val)
+        self.lay.addLayout(allrow)
+
         self.boxes_lay = QVBoxLayout()
         self.lay.addLayout(self.boxes_lay)
         self.auto = AutoBox(ctl)
         self.lay.addWidget(self.auto)
+        self.sched = ScheduleBox(ctl)
+        self.lay.addWidget(self.sched)
         self.status = QLabel("Detecting monitors…")
         self.lay.addWidget(self.status)
         self.boxes: dict[str, MonitorBox] = {}
 
         ctl.monitors_changed.connect(self._rebuild)
         ctl.state_changed.connect(lambda k, st: k in self.boxes and self.boxes[k].show_state(st))
+        ctl.state_changed.connect(lambda *_: self._show_level())
+        ctl.levels_changed.connect(self._show_level)
         ctl.busy.connect(lambda b: self.status.setText("Working…" if b else "Ready"))
         ctl.profiles_changed.connect(lambda: self._load_profiles(self.prof.currentText()))
         self._load_profiles()
@@ -506,6 +623,14 @@ class Window(QWidget):
             self.boxes[m.key] = b
         if not mons:
             self.status.setText("No monitors found")
+
+    def _show_level(self):
+        lv = self.ctl._level if self.ctl._level is not None else self.ctl.level()
+        if lv is not None and not self.all.isSliderDown():
+            self.all.blockSignals(True)
+            self.all.setValue(lv)
+            self.all.blockSignals(False)
+            self.all_val.setText(f"{lv}%")
 
     def _load_profiles(self, select: str | None = None):
         self.prof.clear()
@@ -611,8 +736,7 @@ class Tray(QSystemTrayIcon):
             m.addAction("Detecting monitors…").setEnabled(False)
         b = m.addMenu("Brightness (all)")
         for v in (100, 75, 50, 25, 10):
-            b.addAction(f"{v}%", lambda v=v: [self.ctl.apply(x, {"brightness": v})
-                                              for x in self.ctl.monitors])
+            b.addAction(f"{v}%", lambda v=v: self.ctl.set_level(v))
         for mon in self.ctl.monitors:
             if mon.msi:
                 self._msi_menu(m.addMenu(mon.label), mon)

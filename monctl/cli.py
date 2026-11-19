@@ -6,7 +6,7 @@ import argparse
 import json
 import sys
 
-from . import __version__, autoprofile, msi, profiles, runner, settings
+from . import __version__, autoprofile, levels, msi, profiles, runner, schedule, settings
 from .monitors import Monitor, discover, find
 
 
@@ -63,9 +63,51 @@ def cmd_set(a, mons):
 
 
 def cmd_brightness(a, mons):
+    # "all" uses brightness matching (monctl range); a named monitor gets the raw value
+    matched = a.monitor == "all"
     for m in _pick(mons, a.monitor):
-        m.apply({"brightness": a.value})
-        print(f"{m.label}: brightness={a.value}")
+        v = levels.to_monitor(m.key, a.value) if matched else a.value
+        m.apply({"brightness": v})
+        print(f"{m.label}: brightness={v}")
+    return 0
+
+
+def cmd_range(a, _mons):
+    if a.key and a.low == "reset":
+        levels.set_range(a.key, None, None)
+    elif a.key and a.low is not None and a.high is not None:
+        try:
+            levels.set_range(a.key, int(a.low), int(a.high))
+        except ValueError as e:
+            return _err(str(e))
+    elif a.key:
+        return _err("usage: monctl range KEY LOW HIGH  |  monctl range KEY reset")
+    r = levels.ranges()
+    if not r:
+        print("all monitors use 0-100 (no matching set)")
+    for k, (lo, hi) in sorted(r.items()):
+        print(f"  {k:16} {lo:3}-{hi}")
+    return 0
+
+
+def cmd_schedule(a, _mons):
+    try:
+        if a.action == "add":
+            if len(a.args) != 2:
+                return _err("usage: monctl schedule add HH:MM PROFILE")
+            if a.args[1] not in profiles.load():
+                return _err(f"no profile {a.args[1]!r}")
+            schedule.add(*a.args)
+        elif a.action == "remove":
+            if len(a.args) != 1 or not schedule.remove(a.args[0]):
+                return _err("usage: monctl schedule remove HH:MM (an existing time)")
+    except ValueError as e:
+        return _err(str(e))
+    rows = settings.get("schedule")
+    for e in rows:
+        print(f"  {e['at']}  -> {e['profile']}")
+    if not rows:
+        print("  (empty; add one with: monctl schedule add 21:00 Night)")
     return 0
 
 
@@ -160,6 +202,7 @@ def cmd_watch(a, _mons):
         print("automatic profiles are off; enabling them for this session only", file=sys.stderr)
     w = autoprofile.Watcher(apply)
     hp = hotplug.Hotplug()
+    sched = schedule.Scheduler()
     retry_at = None
     try:
         while True:
@@ -174,6 +217,9 @@ def cmd_watch(a, _mons):
                         if name in profiles.load():
                             apply(name, only=keys)
                 w.tick(cfg)
+                due = sched.tick(cfg)
+                if due and w.active is None and due in profiles.load():
+                    apply(due)
             except runner.ToolError as e:
                 print(f"monctl: {e}", file=sys.stderr, flush=True)
             time.sleep(a.interval)
@@ -218,6 +264,17 @@ def build_parser() -> argparse.ArgumentParser:
     s.add_argument("value", type=int, choices=range(0, 101), metavar="0-100")
     s.add_argument("monitor", nargs="?", default="all")
     s.set_defaults(fn=cmd_brightness)
+
+    s = sub.add_parser("range", help="brightness matching: the range each monitor gets for 'all'")
+    s.add_argument("key", nargs="?", help="monitor key (see: monctl list)")
+    s.add_argument("low", nargs="?", help="0-100, or 'reset'")
+    s.add_argument("high", nargs="?")
+    s.set_defaults(fn=cmd_range, no_discover=True)
+
+    s = sub.add_parser("schedule", help="time-of-day profiles: list|add HH:MM PROFILE|remove HH:MM")
+    s.add_argument("action", nargs="?", default="list", choices=["list", "add", "remove"])
+    s.add_argument("args", nargs="*")
+    s.set_defaults(fn=cmd_schedule, no_discover=True)
 
     s = sub.add_parser("profile", help="list/show/save/apply/delete profiles")
     s.add_argument("action", choices=["list", "show", "save", "apply", "delete"])

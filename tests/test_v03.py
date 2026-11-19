@@ -175,18 +175,35 @@ def test_next_profile_and_index(ctl):
     assert "No profile 6" in ctl.notices[-1]
 
 
-def test_brightness_steps_coalesce_and_clamp(ctl):
+def test_brightness_steps_share_one_level_and_coalesce(ctl):
     a, b = FakeMon("A", brightness=95), FakeMon("B", brightness="30")   # msigd reports strings
     ctl.monitors = [a, b]
     ctl.states = {"A": a.state(), "B": b.state()}
+    assert ctl.level() == 62                                  # average of 95 and 30
     for _ in range(3):
-        ctl.step_brightness(+10)                              # three quick presses
+        ctl.step_brightness(+10)                              # 62 -> 70 -> 80 -> 90 (snaps to grid)
     drain(ctl)
-    assert a.st["brightness"] == 100 and b.st["brightness"] == 60
+    assert a.st["brightness"] == 90 and b.st["brightness"] == 90
     assert len(a.calls) <= 2                                  # repeats share a write
-    ctl.step_brightness(-10)
+    ctl.step_brightness(+10)
+    ctl.step_brightness(+10)                                  # clamps at 100
     drain(ctl)
-    assert b.st["brightness"] == 50 and ctl.states["B"]["brightness"] == 50
+    assert a.st["brightness"] == 100 and ctl.states["B"]["brightness"] == 100
+
+
+def test_brightness_level_uses_matching_ranges(ctl):
+    from monctl import levels
+    levels.set_range("B", 0, 80)
+    a, b = FakeMon("A"), FakeMon("B")
+    ctl.monitors = [a, b]
+    ctl.states = {"A": a.state(), "B": b.state()}
+    ctl.set_level(50)
+    drain(ctl)
+    assert a.st["brightness"] == 50 and b.st["brightness"] == 40
+    a.calls.clear()
+    ctl.set_level(50)
+    drain(ctl)
+    assert a.calls == []                                      # already there: no write
 
 
 def test_toggle_auto(ctl):
@@ -217,3 +234,75 @@ def test_shortcut_activation_filters_other_sessions():
     s.on_bound = bound.append
     s._bound({"shortcuts": [("profile-1", {"trigger_description": "Meta+Alt+1"})]})
     assert bound == [{"profile-1": "Meta+Alt+1"}]
+
+
+# --------------------------------------------------------- levels / schedule
+
+def test_levels_mapping(cfg):
+    from monctl import levels
+    assert levels.to_monitor("X", 70) == 70                   # no range: unchanged
+    levels.set_range("S", 10, 60)
+    assert [levels.to_monitor("S", v) for v in (0, 50, 100, 150)] == [10, 35, 60, 60]
+    assert levels.to_level("S", 35) == 50 and levels.to_level("S", 5) == 0
+    assert levels.to_level("S", "bad") is None
+    with pytest.raises(ValueError):
+        levels.set_range("S", 60, 60)
+    levels.set_range("S", None, None)
+    assert levels.ranges() == {}
+
+
+def test_schedule_current_and_crossed(cfg):
+    import datetime as dt
+    from monctl import schedule
+    c = {"schedule": [{"at": "21:00", "profile": "Night"}, {"at": "07:30", "profile": "Day"},
+                      {"at": "bad", "profile": "x"}]}
+    d = dt.datetime(2026, 11, 19)
+    assert schedule.current(d.replace(hour=12), c) == "Day"
+    assert schedule.current(d.replace(hour=22), c) == "Night"
+    assert schedule.current(d.replace(hour=3), c) == "Night"        # wraps from yesterday
+    assert schedule.crossed(d.replace(hour=20, minute=59), d.replace(hour=21), c) == "Night"
+    assert schedule.crossed(d.replace(hour=21), d.replace(hour=21, minute=3), c) is None
+    # asleep from 20:00 until 08:00 next day: both passed, the latest (Day) wins
+    assert schedule.crossed(d.replace(hour=20), d.replace(day=20, hour=8), c) == "Day"
+    assert schedule.crossed(d.replace(hour=20), d.replace(day=25, hour=8), c) == "Day"
+
+
+def test_scheduler_does_nothing_at_start(cfg):
+    import datetime as dt
+    from monctl import schedule
+    now = [dt.datetime(2026, 11, 19, 21, 0, 30)]
+    s = schedule.Scheduler(clock=lambda: now[0])
+    c = {"schedule": [{"at": "21:00", "profile": "Night"}, {"at": "21:01", "profile": "Late"}]}
+    assert s.tick(c) is None                                  # 21:00 passed before we started
+    now[0] = now[0].replace(minute=1, second=2)
+    assert s.tick(c) == "Late"
+
+
+def test_watcher_returns_to_scheduled_slot(cfg, monkeypatch):
+    from monctl import autoprofile
+    monkeypatch.setattr(autoprofile.Watcher, "leave_profile", staticmethod(lambda c: "Night"))
+    applied = []
+    procs = [[autoprofile.Proc(1, {"game"})]]
+
+    class S:
+        def scan(self):
+            return procs[0]
+    w = autoprofile.Watcher(applied.append, S())
+    c = {"auto_enabled": True, "auto_default": "Desk", "auto_rules": [{"match": "game", "profile": "Game"}]}
+    w.tick(c)
+    procs[0] = []
+    w.tick(c)
+    assert applied == ["Game", "Night"]
+
+
+def test_cli_range_and_schedule(cfg, capsys):
+    from monctl import cli
+    assert cli.main(["range", "U28E590", "0", "80"]) == 0
+    assert cli.main(["range", "U28E590", "90", "10"]) == 1
+    assert cli.main(["schedule", "add", "21:00", "Desk"]) == 0
+    assert cli.main(["schedule", "add", "25:00", "Desk"]) == 1
+    assert cli.main(["schedule", "add", "07:00", "Nope"]) == 1
+    out = capsys.readouterr().out
+    assert "U28E590            0-80" in out and "21:00  -> Desk" in out
+    assert cli.main(["schedule", "remove", "21:00"]) == 0
+    assert cli.main(["range", "U28E590", "reset"]) == 0
