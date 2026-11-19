@@ -1,6 +1,6 @@
 pkgbase = monctl-msi
 	pkgdesc = Monitor control: per-game profiles, tray, DDC/CI brightness and MSI OSD settings over USB
-	pkgver = 0.4.0
+	pkgver = 0.5.0
 	pkgrel = 1
 	url = https://github.com/doodersrage/monctl
 	arch = any
@@ -19,7 +19,7 @@ pkgbase = monctl-msi
 	optdepends = msigd: MSI monitor settings over USB (needs a build that knows your model)
 	provides = monctl
 	conflicts = monctl
-	source = monctl-0.4.0.tar.gz::https://github.com/doodersrage/monctl/archive/refs/tags/v0.4.0.tar.gz
-	sha256sums = 3538a8c35a0c77416ad1c7cd7a023143b0eae181e856759399a90014fd8e6d3a
+	source = monctl-0.5.0.tar.gz::https://github.com/doodersrage/monctl/archive/refs/tags/v0.5.0.tar.gz
+	sha256sums = 511ae2415d136bae31cd2bd85a8ddfffc34e8302c92a97c22abd82b82cba8619
 
 pkgname = monctl-msi
