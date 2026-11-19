@@ -3,3 +3,8 @@ __pycache__/
 build/
 dist/
 .pytest_cache/
+pkg/
+src/
+build/
+*.egg-info/
+*.pkg.tar.zst
