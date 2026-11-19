@@ -306,3 +306,91 @@ def test_cli_range_and_schedule(cfg, capsys):
     assert "U28E590            0-80" in out and "21:00  -> Desk" in out
     assert cli.main(["schedule", "remove", "21:00"]) == 0
     assert cli.main(["range", "U28E590", "reset"]) == 0
+
+
+# ------------------------------------------------------------ DDC inputs
+
+CAPS = """Model: VX3418-2KPC
+VCP Features:
+   Feature: 14 (Select color preset)
+      Values:
+         01: sRGB
+   Feature: 60 (Input Source)
+      Values:
+         0f: DisplayPort-1
+         11: HDMI-1
+         12: HDMI-2
+         09: Tuner-1
+   Feature: 62 (Audio speaker volume)
+"""
+
+
+def test_ddc_input_caps_and_getvcp():
+    from monctl import ddc
+    assert ddc.parse_input_caps(CAPS) == ["dp1", "hdmi1", "hdmi2"]      # 01 under 14 and tuner ignored
+    st = ddc.parse_getvcp("VCP 10 C 80 100\nVCP 12 C 70 100\nVCP 60 SNC x0f\n")
+    assert st == {"brightness": 80, "contrast": 70, "input": "dp1"}
+    assert ddc.parse_getvcp("VCP 60 SNC x09\n")["input"] == ""         # Samsung's odd report
+
+
+def test_ddc_input_apply_validates_and_caches(tmp_path, monkeypatch):
+    from monctl import ddc
+    monkeypatch.setenv("XDG_CACHE_HOME", str(tmp_path))
+    calls = []
+
+    def fake_run(args, timeout=20):
+        calls.append(args)
+        return CAPS if "capabilities" in args else ""
+    monkeypatch.setattr(runner, "run", fake_run)
+    m = monitors.Monitor(key="VX", label="VX", bus=4)
+    assert m.inputs == ["dp1", "hdmi1", "hdmi2"] and m.inputs == ["dp1", "hdmi1", "hdmi2"]
+    assert sum("capabilities" in c for c in calls) == 1                 # second read is cached
+    with pytest.raises(runner.ToolError):
+        m.apply({"input": "dp2"})                                       # not on this monitor
+    with pytest.raises(runner.ToolError):
+        m.apply({"input": "hdmi1", "brightness": 101})                  # nothing sent if any is bad
+    assert not any("setvcp" in c for c in calls)
+    m.apply({"input": "hdmi1"})
+    assert calls[-1] == ["ddcutil", "--bus", "4", "setvcp", "60", "x11"]
+
+
+# --------------------------------------------------------- focused rules
+
+def test_focused_rule_needs_the_focused_process():
+    from monctl import autoprofile as ap
+    procs = [ap.Proc(10, {"game"}, "570"), ap.Proc(20, {"firefox"})]
+    rules = [{"match": ap.STEAM_GAME, "profile": "Game", "focused": True},
+             {"match": "firefox", "profile": "Web"}]
+    assert ap.pick(rules, procs, focused_pid=10) == "Game"
+    assert ap.pick(rules, procs, focused_pid=20) == "Web"         # game runs but is not focused
+    assert ap.pick(rules, procs, focused_pid=None) == "Game"      # no focus info: "while running"
+    assert ap.needs_focus({"auto_enabled": True, "auto_rules": rules})
+    assert not ap.needs_focus({"auto_enabled": False, "auto_rules": rules})
+
+
+def test_watcher_follows_focus(cfg, monkeypatch):
+    from monctl import autoprofile as ap
+    monkeypatch.setattr(ap.Watcher, "leave_profile", staticmethod(lambda c: "Desk"))
+
+    class S:
+        def scan(self):
+            return [ap.Proc(10, {"game"}), ap.Proc(20, {"konsole"})]
+
+    class F:
+        pid = 20
+    applied = []
+    w = ap.Watcher(applied.append, S(), F())
+    c = {"auto_enabled": True, "auto_rules": [{"match": "game", "profile": "Game", "focused": True}]}
+    assert w.tick(c) is None
+    F.pid = 10
+    assert w.tick(c) == "Game"                                     # alt-tab into the game
+    F.pid = 20
+    assert w.tick(c) == "Desk"                                     # and out again
+    assert applied == ["Game", "Desk"]
+
+
+def test_cli_auto_add_focused(cfg, capsys):
+    from monctl import cli, settings
+    assert cli.main(["auto", "add", "steam:game", "Game", "--focused"]) == 0
+    assert settings.get("auto_rules") == [{"match": "steam:game", "profile": "Game", "focused": True}]
+    assert "(only while focused)" in capsys.readouterr().out

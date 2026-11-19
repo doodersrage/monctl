@@ -19,7 +19,7 @@ from PyQt6.QtWidgets import (QApplication, QCheckBox, QComboBox, QDialog, QDialo
                              QListWidget, QListWidgetItem, QMenu, QMessageBox, QPushButton,
                              QSlider, QSpinBox, QSystemTrayIcon, QTimeEdit, QVBoxLayout, QWidget)
 
-from . import __version__, autoprofile, hotplug, levels, msi, profiles, runner, schedule, settings, shortcuts
+from . import __version__, autoprofile, focus, hotplug, levels, msi, profiles, runner, schedule, settings, shortcuts
 from .monitors import Monitor, discover
 
 MSI_CHOICES = ("game_mode", "night_vision", "smart_crosshair_icon", "smart_crosshair_color",
@@ -53,6 +53,19 @@ def set_autostart(on: bool) -> None:
         p.write_text(autostart_entry())
     else:
         p.unlink(missing_ok=True)
+
+
+INPUT_LABELS = {"dp": "DisplayPort", "dp1": "DisplayPort 1", "dp2": "DisplayPort 2", "hdmi1": "HDMI 1",
+                "hdmi2": "HDMI 2", "usbc": "USB-C", "vga1": "VGA", "vga2": "VGA 2", "dvi1": "DVI",
+                "dvi2": "DVI 2"}
+
+
+def confirm_input(parent, m: Monitor, value: str) -> bool:
+    return QMessageBox.question(
+        parent, "Switch input",
+        f"Switch {m.label} to {INPUT_LABELS.get(value, value)}?\n\n"
+        "This screen will show that input instead of this PC. Switch back with the "
+        "monitor's buttons or with monctl.") == QMessageBox.StandardButton.Yes
 
 
 def nice(s: str) -> str:
@@ -104,6 +117,7 @@ class Controller(QObject):
         self.pool.setMaxThreadCount(1)
         self.monitors: list[Monitor] = []
         self.states: dict[str, dict] = {}
+        self.inputs: dict[str, list[str]] = {}               # selectable inputs per monitor
         self._jobs: set[_Job] = set()
         self._pending = 0
         self.current_profile: str | None = None
@@ -112,6 +126,7 @@ class Controller(QObject):
         self._bright_queued = False
         self._level: int | None = None                        # last "all monitors" level set
         self.watcher = autoprofile.Watcher(self._auto_apply)
+        self._focus_failed = False
         self.scheduler = schedule.Scheduler()
         self.hotplug = hotplug.Hotplug()
         self.settle = QTimer(self, singleShot=True, interval=self.HOTPLUG_SETTLE_MS)
@@ -128,10 +143,7 @@ class Controller(QObject):
             self.error.emit(f"Monitor detection: {e}")
         if not self.monitors:      # wait for the first discovery
             return
-        try:
-            self.watcher.tick()
-        except Exception as e:  # noqa: BLE001 - keep the timer alive
-            self.error.emit(f"Automatic profiles: {e}")
+        self._auto_tick()
         try:
             due = self.scheduler.tick()
             # while a game rule is active the game's profile wins; the schedule's current slot
@@ -143,6 +155,42 @@ class Controller(QObject):
                     self.error.emit(f"Schedule: no profile named {due!r}")
         except Exception as e:  # noqa: BLE001 - keep the timer alive
             self.error.emit(f"Schedule: {e}")
+
+    def _auto_tick(self):
+        try:
+            cfg = settings.load()
+            self._ensure_focus(autoprofile.needs_focus(cfg))
+            self.watcher.tick(cfg)
+        except Exception as e:  # noqa: BLE001 - keep the timer alive
+            self.error.emit(f"Automatic profiles: {e}")
+
+    def _ensure_focus(self, wanted: bool):
+        """Run the KWin focus tracker only while a rule needs it."""
+        tracker = self.watcher.focus
+        if wanted and tracker is None and not self._focus_failed:
+            reason = focus.unavailable_reason()
+            if reason:
+                self._focus_failed = True
+                self.error.emit(f"\"Only while focused\" rules {reason}; treating them as \"while running\"")
+                return
+            tracker = focus.FocusTracker(
+                on_change=lambda _pid: self.monitors and QTimer.singleShot(0, self._auto_tick))
+            try:
+                tracker.start()
+            except Exception as e:  # noqa: BLE001 - D-Bus/KWin refusal: fall back to running
+                self._focus_failed = True
+                tracker.stop()
+                self.error.emit(f"Focus tracking unavailable ({e}); treating focus rules as \"while running\"")
+                return
+            self.watcher.focus = tracker
+        elif not wanted and tracker is not None:
+            tracker.stop()
+            self.watcher.focus = None
+
+    def shutdown(self):
+        if self.watcher.focus is not None:
+            self.watcher.focus.stop()
+            self.watcher.focus = None
 
     def _auto_apply(self, name: str):
         if name not in profiles.load():
@@ -170,10 +218,16 @@ class Controller(QObject):
     def refresh(self):
         def work():
             mons = discover()
-            return mons, {m.key: m.state() for m in mons}
+            ins = {}
+            for m in mons:
+                try:
+                    ins[m.key] = m.inputs
+                except runner.ToolError:
+                    ins[m.key] = []
+            return mons, {m.key: m.state() for m in mons}, ins
 
         def done(res):
-            self.monitors, self.states = res
+            self.monitors, self.states, self.inputs = res
             self._bright.clear()
             self._level = None
             self.monitors_changed.emit(self.monitors)
@@ -353,6 +407,15 @@ class MonitorBox(QGroupBox):
                         "Narrow it on monitors that look brighter than the others.")
         form.addRow(rlab, row)
         self.combos: dict[str, QComboBox] = {}
+        ins = ctl.inputs.get(m.key) or []
+        if ins:
+            c = QComboBox()
+            c.addItem("(unknown)", "")
+            for v in ins:
+                c.addItem(INPUT_LABELS.get(v, v), v)
+            c.activated.connect(lambda _i, cb=c: self._switch_input(cb))
+            form.addRow("Input", c)
+            self.combos["input"] = c
         if m.msi:
             for key in MSI_CHOICES:
                 c = QComboBox()
@@ -365,6 +428,14 @@ class MonitorBox(QGroupBox):
         self._timer.timeout.connect(self._flush)
         self._queued: dict = {}
         self.setEnabled(False)
+
+    def _switch_input(self, cb: QComboBox):
+        v = cb.currentData()
+        cur = self.ctl.states.get(self.m.key, {}).get("input")
+        if v and v != cur and confirm_input(self, self.m, v):
+            self._send({"input": v})
+        else:
+            self.show_state(self.ctl.states.get(self.m.key, {}))   # undo the combo change
 
     def _save_range(self):
         lo, hi = self.lo.value(), self.hi.value()
@@ -395,7 +466,7 @@ class MonitorBox(QGroupBox):
                     s.setValue(int(st[key]))
                     lab.setText(str(int(st[key])))
             for key, c in self.combos.items():
-                i = c.findData(st.get(key))
+                i = c.findData(st.get(key, "" if key == "input" else None))
                 if i >= 0:
                     c.setCurrentIndex(i)
             self.setEnabled(True)
@@ -415,7 +486,10 @@ class RuleDialog(QDialog):
         self.app.setToolTip("A running app, or type a process name (.exe optional for Proton games)")
         self.prof = QComboBox()
         self.prof.addItems(list(profiles.load()))
+        self.focused = QCheckBox("Only while its window is focused")
+        self.focused.setToolTip("Switch back when you Alt+Tab away from it (KDE Plasma)")
         form.addRow("When this runs:", self.app)
+        form.addRow("", self.focused)
         form.addRow("Use profile:", self.prof)
         bb = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel)
         bb.accepted.connect(self.accept)
@@ -428,12 +502,15 @@ class RuleDialog(QDialog):
         match = self.app.itemData(i) if i >= 0 and self.app.itemText(i) == text else text
         if not match or not self.prof.currentText():
             return None
-        return {"match": match, "profile": self.prof.currentText()}
+        r = {"match": match, "profile": self.prof.currentText()}
+        if self.focused.isChecked():
+            r["focused"] = True
+        return r
 
 
 def rule_text(r: dict) -> str:
     what = "Any Steam game" if r["match"] == autoprofile.STEAM_GAME else r["match"]
-    return f"{what}  →  {r['profile']}"
+    return f"{what}{' (focused)' if r.get('focused') else ''}  →  {r['profile']}"
 
 
 class AutoBox(QGroupBox):
@@ -738,8 +815,11 @@ class Tray(QSystemTrayIcon):
         for v in (100, 75, 50, 25, 10):
             b.addAction(f"{v}%", lambda v=v: self.ctl.set_level(v))
         for mon in self.ctl.monitors:
-            if mon.msi:
-                self._msi_menu(m.addMenu(mon.label), mon)
+            if mon.msi or self.ctl.inputs.get(mon.key):
+                sub = m.addMenu(mon.label)
+                if mon.msi:
+                    self._msi_menu(sub, mon)
+                self._input_menu(sub, mon)
 
         m.addSeparator()
         m.addAction("Open window…", self.open_window)
@@ -770,6 +850,20 @@ class Tray(QSystemTrayIcon):
                 a.triggered.connect(lambda _c=False, k=key, v=v: self.ctl.apply(mon, {k: v}))
                 grp.addAction(a)
                 sub.addAction(a)
+
+    def _input_menu(self, menu: QMenu, mon: Monitor):
+        ins = self.ctl.inputs.get(mon.key) or []
+        if not ins:
+            return
+        sub = menu.addMenu("Input")
+        cur = self.ctl.states.get(mon.key, {}).get("input")
+        grp = QActionGroup(sub)
+        for v in ins:
+            a = QAction(INPUT_LABELS.get(v, v), sub, checkable=True, checked=cur == v)
+            a.triggered.connect(lambda _c=False, v=v: v != cur and confirm_input(None, mon, v)
+                                and self.ctl.apply(mon, {"input": v}))
+            grp.addAction(a)
+            sub.addAction(a)
 
     def _save_profile(self):
         name, ok = QInputDialog.getText(None, "Save profile", "Profile name:")
@@ -820,6 +914,7 @@ def run_tray(open_window: bool = False) -> int:
     tray = Tray(ctl)
     install_excepthook(lambda msg: tray.showMessage(
         "monctl", msg, QSystemTrayIcon.MessageIcon.Warning, 8000))
+    app.aboutToQuit.connect(ctl.shutdown)
     tray.show()
     if open_window:
         tray.open_window()

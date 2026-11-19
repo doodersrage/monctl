@@ -1,6 +1,6 @@
 # Builds the package from this source checkout:  makepkg -si
 pkgname=monctl
-pkgver=0.3.0
+pkgver=0.4.0
 pkgrel=1
 pkgdesc="Monitor control for Linux: profiles, tray, DDC/CI brightness and MSI OSD settings over USB"
 arch=('any')
@@ -10,8 +10,8 @@ depends=('python' 'ddcutil')
 makedepends=('python-build' 'python-installer' 'python-setuptools' 'python-wheel')
 checkdepends=('python-pytest')
 optdepends=('python-pyqt6: tray icon and window'
-            'python-dbus: keyboard shortcuts'
-            'python-gobject: keyboard shortcuts'
+            'python-dbus: keyboard shortcuts, focus rules'
+            'python-gobject: keyboard shortcuts, focus rules'
             'msigd: MSI monitor settings over USB (needs a build with your model, e.g. the doodersrage fork)')
 
 build() {

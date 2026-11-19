@@ -31,7 +31,7 @@ and diffed against the full monitor state) and refuses these outright:
 ## Requirements
 
 - Python ≥ 3.9, PyQt6 for the tray/window
-- `python-dbus` and `python-gobject` for keyboard shortcuts (optional)
+- `python-dbus` and `python-gobject` for keyboard shortcuts and focus rules (optional)
 - `ddcutil` with the `i2c-dev` module loaded (DDC/CI monitors)
 - `msigd` from the fork above for MSI monitors (`make TARGETOS=arch`), and access to the monitor's
   `/dev/hidraw*` node (desktop sessions usually grant this; otherwise see msigd's udev rule)
@@ -64,10 +64,14 @@ then install `ddcutil` from your distribution and build msigd from the fork with
 monctl list                                   # monitors and how each is controlled
 monctl status [MONITOR] [--all] [--json]
 monctl set MAG323UPF game_mode=fps night_vision=ai
-monctl brightness 40 [MONITOR|all]
+monctl brightness 40 [MONITOR|all]           # "all" uses brightness matching (below)
+monctl set VX3418-2KPC input=hdmi1            # switch input (DDC/CI or MSI)
+monctl range U28E590 0 80                     # brightness matching; "monctl range" lists
+monctl schedule add 21:00 Night               # time-of-day profiles; list | remove 21:00
 monctl profile save Gaming | apply Gaming | list | show Gaming | delete Gaming
 monctl auto add steam:game Gaming             # automatic profiles
 monctl auto add blender Work
+monctl auto add steam:game Gaming --focused   # only while the game's window has focus (KDE)
 monctl auto default Desktop                   # applied when the last matching app exits
 monctl auto on | off | list | remove blender | procs
 monctl watch                                  # run automatic profiles without the tray
@@ -84,6 +88,36 @@ a manually chosen profile is left alone.
 
 Applying a profile sends `game_mode` first, since the monitor's game-mode presets overwrite
 brightness, sharpness and other picture settings.
+
+### Brightness matching
+
+Different panels look different at the same brightness value. Give each monitor the range it
+should use for the "all monitors" level: set **All monitors** to 50% in the window, then narrow the
+**All-monitor range** of the monitors that look brighter until they match. The tray's
+**Brightness (all)**, the brightness shortcuts and `monctl brightness N` (without a monitor) use it;
+per-monitor sliders and `monctl set` stay raw.
+
+### Schedule
+
+`monctl schedule add 07:30 Desktop` and `monctl schedule add 21:00 Night` (or the window's
+**Schedule** box) apply a profile when the time passes, also when it passed while the PC slept.
+Nothing is applied at startup. While an automatic-profile rule is active its profile wins, and
+when the game exits monctl returns to the profile scheduled for that time instead of the
+"Afterwards" default.
+
+### Inputs
+
+Each monitor's **Input** (window, tray menu or `monctl set KEY input=…`) lists what the monitor
+reports (`dp1`, `hdmi1`, … over DDC/CI; `dp`, `hdmi1`, `usbc` on MSI). The GUI asks before
+switching, since the screen then shows the other source. Inputs are not part of profiles. Some
+monitors (e.g. Samsung U28E590) do not report their current input; it shows as "(unknown)".
+
+### Only while focused (KDE Plasma)
+
+A rule marked **Only while its window is focused** switches back when you Alt+Tab away and
+returns when you focus the app again. monctl loads a small KWin script that reports the focused
+window; it is loaded only while such a rule exists and unloaded when the tray quits. Without
+KDE (or without `python-dbus`), these rules behave like ordinary "while running" rules.
 
 ## Keyboard shortcuts
 

@@ -111,11 +111,22 @@ def rule_matches(match: str, procs: list[Proc]) -> bool:
     return any(want in p.names for p in procs)
 
 
-def pick(rules: list[dict], procs: list[Proc]) -> str | None:
+def pick(rules: list[dict], procs: list[Proc], focused_pid: int | None = None) -> str | None:
+    """First rule that matches. A rule with "focused": true only counts the process that owns
+    the focused window; without focus information it falls back to "running"."""
     for r in rules:
-        if r.get("match") and r.get("profile") and rule_matches(r["match"], procs):
+        if not (r.get("match") and r.get("profile")):
+            continue
+        ps = procs
+        if r.get("focused") and focused_pid is not None:
+            ps = [p for p in procs if p.pid == focused_pid]
+        if rule_matches(r["match"], ps):
             return r["profile"]
     return None
+
+
+def needs_focus(cfg: dict) -> bool:
+    return bool(cfg.get("auto_enabled")) and any(r.get("focused") for r in cfg.get("auto_rules") or [])
 
 
 class Watcher:
@@ -125,9 +136,10 @@ class Watcher:
     profile is left alone until an app actually starts or stops.
     """
 
-    def __init__(self, apply, scanner: Scanner | None = None):
+    def __init__(self, apply, scanner: Scanner | None = None, focus=None):
         self.apply = apply
         self.scanner = scanner or Scanner()
+        self.focus = focus          # object with .pid (focus.FocusTracker) or None
         self.active: str | None = None
 
     @staticmethod
@@ -145,7 +157,8 @@ class Watcher:
         if not cfg.get("auto_enabled"):
             self.active = None
             return None
-        target = pick(cfg.get("auto_rules") or [], self.scanner.scan())
+        target = pick(cfg.get("auto_rules") or [], self.scanner.scan(),
+                      self.focus.pid if self.focus is not None else None)
         if target == self.active:
             return None
         previous, self.active = self.active, target

@@ -39,11 +39,20 @@ class Monitor:
             raise runner.ToolError(f"{self.label}: no DDC/CI bus")
         return ddc.get(self.bus)
 
+    @property
+    def inputs(self) -> list[str]:
+        """Selectable inputs (values for apply({"input": ...}))."""
+        if self.msi:
+            return list(msi.WRITABLE["input"])
+        if self.bus is None:
+            return []
+        return ddc.inputs(self.bus, self.key)
+
     def apply(self, values: dict) -> None:
         if self.msi:
             msi.apply(values, self.msi)
         elif self.bus is not None:
-            ddc.apply(self.bus, values)
+            ddc.apply(self.bus, values, self.inputs if "input" in values else None)
         else:
             raise runner.ToolError(f"{self.label}: no DDC/CI bus")
 

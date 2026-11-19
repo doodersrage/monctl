@@ -69,7 +69,7 @@ def test_parse_detect_skips_invalid_and_binary_serials():
 
 def test_parse_getvcp():
     assert ddc.parse_getvcp("VCP 10 C 100 100\nVCP 12 C 75 100\nVCP 60 SNC x0f\n") == \
-        {"brightness": 100, "contrast": 75}
+        {"brightness": 100, "contrast": 75, "input": "dp1"}
 
 
 def test_parse_query_ignores_warnings():

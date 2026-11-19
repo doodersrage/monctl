@@ -152,11 +152,14 @@ def cmd_auto(a, _mons):
         settings.set(auto_default=a.args[0] if a.args else "")
     elif a.action == "add":
         if len(a.args) != 2:
-            return _err("usage: monctl auto add MATCH PROFILE  (MATCH: process name or steam:game)")
+            return _err("usage: monctl auto add MATCH PROFILE [--focused]  (MATCH: process name or steam:game)")
         match, prof = a.args
         if prof not in profiles.load():
             return _err(f"no profile {prof!r}")
-        rules = [r for r in rules if r.get("match") != match] + [{"match": match, "profile": prof}]
+        rule = {"match": match, "profile": prof}
+        if a.focused:
+            rule["focused"] = True
+        rules = [r for r in rules if r.get("match") != match] + [rule]
         settings.set(auto_rules=rules)
     elif a.action == "remove":
         if not a.args:
@@ -175,7 +178,7 @@ def cmd_auto(a, _mons):
     print(f"automatic profiles: {'on' if cfg['auto_enabled'] else 'off'}"
           f"   default: {cfg['auto_default'] or '(none)'}")
     for i, r in enumerate(cfg["auto_rules"], 1):
-        print(f"  {i}. {r['match']:24} -> {r['profile']}")
+        print(f"  {i}. {r['match']:24} -> {r['profile']}{'   (only while focused)' if r.get('focused') else ''}")
     if not cfg["auto_rules"]:
         print("  (no rules; add one with: monctl auto add steam:game Gaming)")
     return 0
@@ -285,6 +288,8 @@ def build_parser() -> argparse.ArgumentParser:
     s.add_argument("action", nargs="?", default="list",
                    choices=["list", "on", "off", "default", "add", "remove", "procs"])
     s.add_argument("args", nargs="*")
+    s.add_argument("--focused", action="store_true",
+                   help="with add: only while the app's window has focus (KDE Plasma, tray only)")
     s.set_defaults(fn=cmd_auto, no_discover=True)
 
     s = sub.add_parser("watch", help="apply automatic profiles without the tray (Ctrl+C to stop)")
