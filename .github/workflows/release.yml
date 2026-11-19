@@ -17,7 +17,7 @@ jobs:
       - uses: actions/checkout@v5
       - run: sudo apt-get update && sudo apt-get install -y --no-install-recommends build-essential debhelper dh-python python3-pytest
       - run: packaging/build-deb.sh dist
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with: {name: deb, path: dist/*.deb}
 
   rpm:
@@ -27,8 +27,17 @@ jobs:
       - run: dnf install -y git rpm-build python3-devel
       - uses: actions/checkout@v5
       - run: packaging/build-rpm.sh dist
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with: {name: rpm, path: dist/*.rpm}
+
+  srpm:
+    # what Fedora COPR runs (.copr/Makefile); not published, only checked
+    runs-on: ubuntu-latest
+    container: fedora:latest
+    steps:
+      - run: dnf install -y git make
+      - uses: actions/checkout@v5
+      - run: make -f .copr/Makefile srpm outdir=$PWD/srpm && ls srpm/*.src.rpm
 
   arch:
     runs-on: ubuntu-latest
@@ -37,16 +46,16 @@ jobs:
       - run: pacman -Syu --noconfirm git
       - uses: actions/checkout@v5
       - run: packaging/build-arch.sh dist
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with: {name: arch, path: dist/*.pkg.tar.zst}
 
   release:
     if: startsWith(github.ref, 'refs/tags/v')
-    needs: [deb, rpm, arch]
+    needs: [deb, rpm, srpm, arch]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with: {path: dist, merge-multiple: true}
       - name: Check the tag matches the version
         run: |

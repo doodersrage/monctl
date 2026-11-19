@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.6.0
+
+- Shell completions for bash, zsh and fish, and a man page (`man monctl`).
+- AppStream metadata, so monctl shows up in software centres such as KDE Discover.
+- Fedora COPR build support (`.copr/Makefile`) and a publishing guide (`packaging/PUBLISHING.md`).
+- README: tray menu screenshot.
+
 ## 0.5.0
 
 - Steam game picker: rules can match one installed game (`steam:<appid>`), chosen by name in the

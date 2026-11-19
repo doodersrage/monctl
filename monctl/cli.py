@@ -252,6 +252,29 @@ def cmd_config(a, _mons):
     return 0
 
 
+def cmd_complete(a, _mons):
+    """Names for shell completion, from saved files only (never probes monitors)."""
+    if a.kind == "profiles":
+        names = list(profiles.load())
+    elif a.kind == "monitors":
+        keys = set(levels.ranges())
+        for prof in profiles.load().values():
+            keys.update(prof)
+        names = ["all", *sorted(keys)]
+    elif a.kind == "games":
+        names = [f"{steam.PREFIX}{i}" for i in steam.installed_games()] + [autoprofile.STEAM_GAME]
+    elif a.kind == "rules":
+        names = [r.get("match", "") for r in settings.get("auto_rules")]
+    elif a.kind == "times":
+        names = [e.get("at", "") for e in settings.get("schedule")]
+    elif a.kind == "settings":
+        names = sorted({*msi.WRITABLE, "brightness", "contrast", "input"})
+    else:
+        names = []
+    print("\n".join(n for n in names if n))
+    return 0
+
+
 def cmd_tray(a, _mons):
     from .qt import run_tray
     return run_tray(open_window=a.window)
@@ -260,7 +283,7 @@ def cmd_tray(a, _mons):
 def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(prog="monctl", description="Monitor control: MSI over USB, others over DDC/CI.")
     p.add_argument("--version", action="version", version=f"monctl {__version__}")
-    sub = p.add_subparsers(dest="cmd")
+    sub = p.add_subparsers(dest="cmd", metavar="COMMAND")
 
     sub.add_parser("list", help="list monitors").set_defaults(fn=cmd_list)
 
@@ -312,6 +335,10 @@ def build_parser() -> argparse.ArgumentParser:
     s.add_argument("key", nargs="?", choices=["msigd"])
     s.add_argument("value", nargs="?")
     s.set_defaults(fn=cmd_config, no_discover=True)
+
+    s = sub.add_parser("_complete")       # for shell completion scripts (not listed in --help)
+    s.add_argument("kind", choices=["profiles", "monitors", "games", "rules", "times", "settings"])
+    s.set_defaults(fn=cmd_complete, no_discover=True)
 
     s = sub.add_parser("tray", help="run the tray icon")
     s.add_argument("--window", action="store_true", help="also open the window")

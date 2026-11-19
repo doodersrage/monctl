@@ -1,6 +1,6 @@
 # Builds the package from this source checkout:  makepkg -si
 pkgname=monctl
-pkgver=0.5.0
+pkgver=0.6.0
 pkgrel=1
 pkgdesc="Monitor control for Linux: profiles, tray, DDC/CI brightness and MSI OSD settings over USB"
 arch=('any')
@@ -27,6 +27,6 @@ check() {
 
 package() {
   /usr/bin/python -m installer --destdir="$pkgdir" "$srcdir"/dist/*.whl
-  install -Dm644 "$startdir/data/monctl.desktop" "$pkgdir/usr/share/applications/monctl.desktop"
-  install -Dm644 "$startdir/LICENSE" "$pkgdir/usr/share/licenses/$pkgname/LICENSE"
+  cd "$startdir"
+  ./install-files.sh "$pkgdir"
 }

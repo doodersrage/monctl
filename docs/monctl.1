@@ -1,0 +1,105 @@
+.TH MONCTL 1 "2026-11-19" "monctl 0.6.0" "User Commands"
+.SH NAME
+monctl \- monitor control: profiles, per-game profiles, brightness and MSI settings
+.SH SYNOPSIS
+.B monctl
+.I command
+.RI [ arguments ]
+.SH DESCRIPTION
+.B monctl
+controls every connected monitor: brightness, contrast and input over DDC/CI through
+.BR ddcutil (1),
+and the on-screen settings of MSI monitors (game mode, Night Vision, smart crosshair, response time,
+Eye Saver) over USB through
+.BR msigd .
+Profiles store the settings of all monitors at once. They can be applied by hand, automatically while
+a game or another program runs, at times of day, or from global keyboard shortcuts in the tray.
+.PP
+.I MONITOR
+is an index from
+.BR "monctl list" ,
+a monitor key such as
+.BR MAG323UPF ,
+a connector such as
+.BR DP-3 ,
+or
+.BR all .
+.SH COMMANDS
+.TP
+.B list
+List the monitors and how each one is controlled.
+.TP
+.BR status " [\fIMONITOR\fR] [" \-\-all "] [" \-\-json ]
+Show settings. \fB\-\-all\fR includes every setting msigd reports.
+.TP
+.BI set " MONITOR KEY" = VALUE " \fR..."
+Change settings, for example \fBmonctl set MAG323UPF game_mode=fps night_vision=ai\fR or
+\fBmonctl set VX3418-2KPC input=hdmi1\fR. Values are checked before anything is sent; settings that can
+disconnect or hang a monitor over USB are refused.
+.TP
+.BI brightness " LEVEL" " \fR[\fIMONITOR\fR]"
+Set brightness (0\-100). Without a monitor, or with \fBall\fR, brightness matching applies (see \fBrange\fR).
+.TP
+.BR range " [\fIKEY LOW HIGH\fR | \fIKEY\fR " reset ]
+Brightness matching: the range a monitor uses for the "all monitors" level, so different panels look
+alike. Without arguments, list the ranges.
+.TP
+.BR schedule " [" list " | " add " \fIHH:MM PROFILE\fR | " remove " \fIHH:MM\fR]"
+Apply a profile when a time of day passes, also when it passed while the computer slept. After a game
+exits, automatic profiles return to the profile scheduled for that time.
+.TP
+.BR profile " " list " | " show " | " save " | " apply " | " delete " \fINAME\fR"
+Manage profiles. \fBsave\fR stores the current settings of all connected monitors.
+.TP
+.BR auto " [" list " | " on " | " off " | " default " \fIPROFILE\fR | " add " \fIMATCH PROFILE\fR [" \-\-focused "] | " remove " \fIMATCH\fR | " procs " | " games ]
+Automatic profiles. \fIMATCH\fR is a process name (case-insensitive, \fB.exe\fR optional), \fBsteam:game\fR
+for any Steam game, or \fBsteam:\fIAPPID\fR for one game (\fBauto games\fR lists them). The first matching
+rule wins; when the last matching program exits, the scheduled or default profile is applied.
+\fB\-\-focused\fR makes a rule apply only while the program's window has focus (KDE Plasma).
+\fBprocs\fR lists running processes.
+.TP
+.BR watch " [" \-\-interval " \fISECONDS\fR]"
+Apply automatic profiles and the schedule without the tray.
+.TP
+.BR config " [" msigd " [\fIPATH\fR]]"
+Show monctl's settings, or set the path of the msigd binary.
+.TP
+.BR tray " [" \-\-window ]
+Run the tray icon (needs PyQt6). The tray offers profiles, brightness, MSI settings, inputs,
+automatic profiles, global keyboard shortcuts and starting at login.
+.SH FILES
+.TP
+.I ~/.config/monctl/profiles.json
+Saved profiles.
+.TP
+.I ~/.config/monctl/settings.json
+Automatic-profile rules, schedule, brightness ranges and other settings.
+.TP
+.I ~/.local/state/monctl/tray.log
+Unexpected errors in the tray.
+.TP
+.I ~/.cache/monctl/
+Input lists read from monitors.
+.SH ENVIRONMENT
+.TP
+.B MONCTL_MSIGD
+Path of the msigd binary, if it is not on \fBPATH\fR.
+.TP
+.B MONCTL_STEAM_ROOT
+Steam directory, if it is not in a standard place.
+.SH EXAMPLES
+.nf
+monctl profile save Gaming
+monctl auto add steam:game Gaming
+monctl auto default Desktop
+monctl auto on
+monctl schedule add 21:00 Night
+monctl range U28E590 0 80
+monctl brightness 40
+.fi
+.SH SEE ALSO
+.BR ddcutil (1),
+.B msigd
+(https://github.com/doodersrage/msigd)
+.SH BUGS
+https://github.com/doodersrage/monctl/issues

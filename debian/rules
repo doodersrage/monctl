@@ -19,8 +19,8 @@ override_dh_auto_install:
 	printf '#!/usr/bin/python3\nfrom monctl.cli import main\nraise SystemExit(main())\n' > $(PKG)/usr/bin/monctl
 	chmod 755 $(PKG)/usr/bin/monctl
 	./install-files.sh $(PKG)
-	# Debian keeps the license as /usr/share/doc/monctl/copyright
-	rm -rf $(PKG)/usr/share/licenses
+	# Debian keeps the license as /usr/share/doc/monctl/copyright and installs the changelog itself
+	rm -rf $(PKG)/usr/share/licenses $(PKG)/usr/share/doc/monctl/CHANGELOG.md
 
 override_dh_installchangelogs:
 	dh_installchangelogs CHANGELOG.md

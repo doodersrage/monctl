@@ -18,7 +18,10 @@ Monitor control for Linux, with profiles, a tray icon and a settings window.
 
 Verified on an MSI MAG323UPF (FW V61) alongside a ViewSonic VX3418-2KPC and a Samsung U28E590.
 
-![monctl window](docs/window.png)
+<p>
+  <img src="docs/window.png" alt="monctl window" width="420">
+  <img src="docs/tray.png" alt="monctl tray menu" width="235" valign="top">
+</p>
 
 ## Safety
 
@@ -150,6 +153,12 @@ them later with **Change shortcuts…** in the tray menu (or System Settings →
 | Meta+Alt+N | Next profile |
 | Meta+Alt+Page Up / Page Down | Brightness ±10 on every monitor |
 | Meta+Alt+A | Automatic profiles on/off |
+
+## Shell completions and man page
+
+The packages install bash, zsh and fish completions (profile names, monitors, Steam games and
+setting names complete) and `man monctl`. From a source checkout, `sudo ./install-files.sh /`
+installs them too.
 
 ## Troubleshooting
 

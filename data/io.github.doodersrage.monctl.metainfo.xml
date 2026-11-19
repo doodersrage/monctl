@@ -1,0 +1,94 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<component type="desktop-application">
+  <id>io.github.doodersrage.monctl</id>
+  <name>monctl</name>
+  <summary>Monitor profiles, per-game switching and brightness for every screen</summary>
+  <developer id="io.github.doodersrage">
+    <name>Robert McDowell</name>
+  </developer>
+  <metadata_license>CC0-1.0</metadata_license>
+  <project_license>MIT</project_license>
+  <launchable type="desktop-id">monctl.desktop</launchable>
+  <description>
+    <p>
+      monctl controls all your monitors from one place: brightness, contrast and input over DDC/CI for
+      any monitor, and the on-screen settings of MSI monitors (game mode, Night Vision, smart crosshair,
+      response time, Eye Saver) over USB.
+    </p>
+    <ul>
+      <li>Save the settings of every monitor as a profile, such as Gaming, Desktop or Night</li>
+      <li>Switch profiles automatically while a Steam game or another program runs</li>
+      <li>Apply profiles at times of day</li>
+      <li>Match brightness across monitors that look different at the same setting</li>
+      <li>Global keyboard shortcuts for profiles and brightness</li>
+      <li>Settings that could disconnect or hang a monitor are refused</li>
+    </ul>
+    <p>
+      It comes with a settings window, a system tray icon and a command line tool (monctl).
+    </p>
+  </description>
+  <screenshots>
+    <screenshot type="default">
+      <caption>The settings window</caption>
+      <image>https://raw.githubusercontent.com/doodersrage/monctl/main/docs/window.png</image>
+    </screenshot>
+  </screenshots>
+  <url type="homepage">https://github.com/doodersrage/monctl</url>
+  <url type="bugtracker">https://github.com/doodersrage/monctl/issues</url>
+  <url type="vcs-browser">https://github.com/doodersrage/monctl</url>
+  <categories>
+    <category>Settings</category>
+    <category>HardwareSettings</category>
+  </categories>
+  <keywords>
+    <keyword>monitor</keyword>
+    <keyword>brightness</keyword>
+    <keyword>ddc</keyword>
+    <keyword>msi</keyword>
+    <keyword>display</keyword>
+    <keyword>gaming</keyword>
+  </keywords>
+  <provides>
+    <binary>monctl</binary>
+  </provides>
+  <requires>
+    <display_length compare="ge">360</display_length>
+  </requires>
+  <supports>
+    <control>pointing</control>
+    <control>keyboard</control>
+  </supports>
+  <content_rating type="oars-1.1"/>
+  <releases>
+    <release version="0.6.0" date="2026-11-19">
+      <description>
+        <p>Shell completions, a man page, software centre listing and Fedora COPR packaging.</p>
+      </description>
+    </release>
+    <release version="0.5.0" date="2026-11-19">
+      <description>
+        <p>Pick a single Steam game for a rule by name; Arch, Debian/Ubuntu and Fedora packages.</p>
+      </description>
+    </release>
+    <release version="0.4.0" date="2026-11-19">
+      <description>
+        <p>Brightness matching, time-of-day schedule, input switching and rules that apply only while a game is focused.</p>
+      </description>
+    </release>
+    <release version="0.3.0" date="2026-11-19">
+      <description>
+        <p>Global keyboard shortcuts; monitors that come back are re-detected and get the profile they missed.</p>
+      </description>
+    </release>
+    <release version="0.2.0" date="2026-11-18">
+      <description>
+        <p>Automatic profiles while a program or Steam game runs.</p>
+      </description>
+    </release>
+    <release version="0.1.0" date="2026-11-18">
+      <description>
+        <p>First release: command line, profiles, tray icon and window.</p>
+      </description>
+    </release>
+  </releases>
+</component>

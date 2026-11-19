@@ -1,0 +1,56 @@
+#compdef monctl
+# zsh completion for monctl
+
+_monctl_names() { local -a n; n=(${(f)"$(monctl _complete $1 2>/dev/null)"}); _describe -t $1 $1 n; }
+
+_monctl() {
+    local -a commands
+    commands=(
+        'list:list monitors'
+        'status:show monitor settings'
+        'set:change settings (KEY=VALUE)'
+        'brightness:set brightness (0-100)'
+        'range:brightness matching range for a monitor'
+        'schedule:time-of-day profiles'
+        'profile:list/show/save/apply/delete profiles'
+        'auto:automatic profiles'
+        'watch:apply automatic profiles without the tray'
+        'config:show or change monctl settings'
+        'tray:run the tray icon'
+    )
+    if (( CURRENT == 2 )); then
+        _describe -t commands 'monctl command' commands
+        _arguments '(-h --help)'{-h,--help}'[show help]' '--version[show version]'
+        return
+    fi
+    local cmd=$words[2]
+    local n=$(( CURRENT - 2 ))      # position of the word being completed after the command
+    case $cmd in
+        status) _arguments '--all[every setting]' '--json[JSON output]' '1:monitor:{_monctl_names monitors}' ;;
+        set)
+            if (( n == 1 )); then _monctl_names monitors
+            else local -a s; s=(${(f)"$(monctl _complete settings 2>/dev/null)"}); compadd -S = -- $s; fi ;;
+        brightness) (( n == 2 )) && _monctl_names monitors ;;
+        range) (( n == 1 )) && { local -a m; m=(${(f)"$(monctl _complete monitors 2>/dev/null)"}); compadd -- ${m:#all}; }; (( n == 2 )) && compadd reset ;;
+        schedule)
+            if (( n == 1 )); then compadd list add remove
+            elif [[ $words[3] == remove ]]; then _monctl_names times
+            elif [[ $words[3] == add && n -eq 3 ]]; then _monctl_names profiles; fi ;;
+        profile)
+            if (( n == 1 )); then compadd list show save apply delete
+            elif (( n == 2 )); then _monctl_names profiles; fi ;;
+        auto)
+            if [[ $PREFIX == -* ]]; then compadd -- --focused
+            elif (( n == 1 )); then compadd list on off default add remove procs games
+            else case $words[3] in
+                default) (( n == 2 )) && _monctl_names profiles ;;
+                remove) (( n == 2 )) && _monctl_names rules ;;
+                add) (( n == 2 )) && _monctl_names games; (( n == 3 )) && _monctl_names profiles ;;
+            esac; fi ;;
+        watch) _arguments '--interval[seconds between checks]:seconds' ;;
+        config) (( n == 1 )) && compadd msigd ;;
+        tray) _arguments '--window[also open the window]' ;;
+    esac
+}
+
+_monctl "$@"

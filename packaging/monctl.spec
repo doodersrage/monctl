@@ -3,7 +3,7 @@
 %global srcname monctl
 
 Name:           monctl
-Version:        0.5.0
+Version:        0.6.0
 Release:        1%{?dist}
 Summary:        Monitor control: profiles, per-game profiles, tray app
 License:        MIT
@@ -41,8 +41,8 @@ raise SystemExit(main())
 PY
 chmod 755 %{buildroot}%{_bindir}/monctl
 ./install-files.sh %{buildroot}
-# rpm puts the license itself
-rm -rf %{buildroot}%{_datadir}/licenses
+# rpm puts the license and docs itself
+rm -rf %{buildroot}%{_datadir}/licenses %{buildroot}%{_docdir}
 
 %files
 %license LICENSE
@@ -50,7 +50,14 @@ rm -rf %{buildroot}%{_datadir}/licenses
 %{_bindir}/monctl
 %{python3_sitelib}/monctl/
 %{_datadir}/applications/monctl.desktop
+%{_metainfodir}/io.github.doodersrage.monctl.metainfo.xml
+%{_mandir}/man1/monctl.1*
+%{_datadir}/bash-completion/completions/monctl
+%{_datadir}/zsh/site-functions/_monctl
+%{_datadir}/fish/vendor_completions.d/monctl.fish
 
 %changelog
+* Thu Nov 19 2026 Robert McDowell <1476679+doodersrage@users.noreply.github.com> - 0.6.0-1
+- Shell completions, man page, AppStream metadata, COPR packaging
 * Thu Nov 19 2026 Robert McDowell <1476679+doodersrage@users.noreply.github.com> - 0.5.0-1
 - Steam game picker; Debian, Fedora and Arch packages
