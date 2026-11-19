@@ -33,6 +33,26 @@ and diffed against the full monitor state) and refuses these outright:
 
 If `msigd` is not on `PATH`: `monctl config msigd /path/to/msigd` (or set `MONCTL_MSIGD`).
 
+## Install
+
+**Arch Linux** (not on the AUR yet; the PKGBUILD downloads the tagged release):
+
+```
+git clone https://github.com/doodersrage/monctl
+cd monctl/packaging/aur && makepkg -si
+sudo pacman -S --needed python-pyqt6        # for the tray and window
+```
+
+For MSI monitors, build msigd from the fork:
+
+```
+git clone https://github.com/doodersrage/msigd
+cd msigd/packaging/arch && makepkg -si
+```
+
+**Other distributions:** `pip install --user "monctl[tray] @ git+https://github.com/doodersrage/monctl@v0.2.2"`,
+then install `ddcutil` from your distribution and build msigd from the fork with `make`.
+
 ## Usage
 
 ```
