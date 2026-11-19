@@ -1,3 +1,3 @@
 """monctl: monitor control for Linux (MSI over USB via msigd, others via DDC/CI)."""
 
-__version__ = "0.4.0"
+__version__ = "0.5.0"

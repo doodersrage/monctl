@@ -1,6 +1,6 @@
 # Builds the package from this source checkout:  makepkg -si
 pkgname=monctl
-pkgver=0.4.0
+pkgver=0.5.0
 pkgrel=1
 pkgdesc="Monitor control for Linux: profiles, tray, DDC/CI brightness and MSI OSD settings over USB"
 arch=('any')
