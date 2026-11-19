@@ -34,7 +34,7 @@ and diffed against the full monitor state) and refuses these outright:
 
 ## Requirements
 
-- Python ≥ 3.9, PyQt6 for the tray/window
+- Python ≥ 3.10, PyQt6 for the tray/window
 - `python-dbus` and `python-gobject` for keyboard shortcuts and focus rules (optional)
 - `ddcutil` with the `i2c-dev` module loaded (DDC/CI monitors)
 - `msigd` from the fork above for MSI monitors (`make TARGETOS=arch`), and access to the monitor's

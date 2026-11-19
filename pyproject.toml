@@ -7,7 +7,7 @@ name = "monctl"
 dynamic = ["version"]
 description = "Monitor control for Linux: MSI OSD settings over USB (msigd) and DDC/CI (ddcutil), with profiles and a tray"
 readme = "README.md"
-requires-python = ">=3.9"
+requires-python = ">=3.10"
 license = "MIT"
 license-files = ["LICENSE"]
 dependencies = []
